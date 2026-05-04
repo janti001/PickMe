@@ -9,9 +9,11 @@ A tool to incorporate into membrane segmentation-based workflows. Typical workfl
 5. Export particles
 6. Additional Processing to push resolution 
 
-This tool looks to address the issue of parts 2 and 3 and provide some level of standardisation in this part of the workflow. Here, custom scripts are written to address the needs of the individuals analysing the data - this leads to high levels of redundancy. 
+This tool looks to address the issue of parts 2 and 3 and provide some level of standardisation in this part of the workflow. This leads to individual groups writing custom scripts to address the needs of the individuals analysing the data - this leads to high levels of redundancy. 
 
-So this project look to reduce redundancy and aid in membrane oversampling, particle picking and other analysis and clean-up by being an open-source, easy-to-use and customisable tool.
+This project look to reduce redundancy and aid in membrane oversampling, particle picking and other analysis and clean-up by being an open-source, easy-to-use and customisable tool.
+
+# Disclaimer
 
 I am very open to the contribution to this project by anyone interested. For additional tools/functionalities that you feel should be contributed/want to contribute, feel free to contact me.
 <div>
