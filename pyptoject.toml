@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name="PickMe"
+version="0.1.0"
+authors=[{name="Joe Antinoro", email="ucbtj22@ucl.ac.uk"}]
+description="A tool to be incorporated into membrane segmentation and particle picking pipelines."
+readme="README.md"
+requires-python=">=3.14"
+dependencies=[
+	'numpy',
+	'pandas',
+	'matplotlib',
+	'starfile',
+	'mrcfile',
+	'napari',
+	'scikit-image',
+	'seaborn',
+	'plotly',
+	'tqdm',
+	'scipy'
+	]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license="GPL-3.0-or-later"
+license-files=["LICEN[CS]E*"]
+keywords=['picking', 'membrane', 'picker']
+
+[project.urls]
+HomePage="https://github.com/janti001/PickMe"
+
+
+[project.scripts]
+PickMe = 'PickMe.cli:main'
