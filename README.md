@@ -1,6 +1,7 @@
 # PickMe
 <div>
 A tool to incorporate into membrane segmentation-based workflows. Typical workflows involving membranes involve:
+
 1. Membrane segmentation
 2. Oversample the segmentation of desired objects to get particle picks
 3. Clean up particle picks
@@ -38,38 +39,38 @@ As PickMe is being worked on daily, it is best to clone the github repository an
 This way, all changes will be visible without running 'pip install upgrade'
 
 #### Make directory for the project
-'''
+```
 mkdir PickMe
 cd PickMe
-'''
+```
 
 #### Create conda environment
-'''
+```
 conda create env -n PickMe python=3.14
 conda activate PickMe
-'''
+```
 
 #### Pull the repo
 When inside PickMe/
-'''
+```
 git init
 git remote add origin https://github.com/janti001/PickMe.git
 git pull origin/main
-'''
+```
 
 #### Pip install
-'''
+```
 pip install -e .
-'''
+```
 The "-e" will install an editable version, which is important as this project is being updated. So the code will update as and when you pull from the repo
 
 ## Via PIP
 
-'''
+```
 conda create env -n PickMe python=3.14
 conda activate PickMe
 pip install PickMe
-'''
+```
 <div>
 
 # Usage
