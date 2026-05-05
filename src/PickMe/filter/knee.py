@@ -1,6 +1,6 @@
 import numpy as np
 
-from ..plotting.knee_plot import plot_knee
+from ..plotting import plot_knee
 
 
 
