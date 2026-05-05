@@ -49,5 +49,6 @@ def plot_knee(normalised_volume, index_threshold, norm_threshold, micrograph):
     # --- saving the figure
     #here we are assuming the user is using the same project structure
     #this can be changed
+    #this may have to be changed to get the directory paths correct
     knee_plot.get_figure().savefig(f'../outputs/plots/{micrograph}_knee.png')
 
