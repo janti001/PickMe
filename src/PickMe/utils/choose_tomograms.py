@@ -4,7 +4,16 @@ import re
 import os
 
 def choose_tomograms(segmentation_directory):
+    '''
+    Function creates a list of absolute file paths from a given directory. 
 
+    :params segmentation_directory: Directory where the tomogram segmentation files are
+    :type segmentation_directory: str, pathlike
+
+    :return files: list of segmentation files
+    :rtype: list
+    
+    '''
     #not sure which one of the two of these to use
     #first one assumes that the segmentation software that users use will leave a segment in the file name
     files = glob.glob(os.path.join(segmentation_directory, '*segment*'))
