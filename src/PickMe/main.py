@@ -22,6 +22,7 @@ mgraph_suffix = '.tomostar'
 star_suffix = '.star'
 
 
+
 #instantiate the data structure to be used to write the star file
 star_dict = {'rlnCoordinateX':[],
              'rlnCoordinateY':[],
@@ -47,13 +48,15 @@ full_data_dict = {} #dictionary associating tomogram, with objects, and the obje
 #Each function will be called by a subcommand in the CLI
 
 # --- Object extraction and filtering ---
-def extract_and_store(input_dir, output_dir):
+def extract_and_store(input_dir, output_dir=None):
     '''
     Takes a list of tomogram segmentations, identifies all the objects, filter objects by NSR and provides a filtered object dataset, per tomogram.
     The user also has the option to, from the objects filtered set, choose objects of interest.
 
-    :param files: list of segmentation files with .mrc suffix
-    :type files: list
+    :param input_dir: directory, pathlike, to the directory containing segmentation files
+    :param output_dir: directory, pathlike, to  where outputs are to be put
+    :type input_dir: string, pathlike
+    :type output_dir:string, pathlike
 
     :return data.csv: CSV file containing the tomograms and their objects
     :rtype: dict
@@ -71,6 +74,7 @@ def extract_and_store(input_dir, output_dir):
                 with mrcfile.open(file, mode='r') as mrc:
                     segmentation = mrc.data.copy()
                 shape_zyx = segmentation.shape
+                pix_size = segmentation.voxel_size.x
 
                 #add progress bar update
                 pbar.set_postfix_str(f'Processing {mgraph}... | shape (zyx)={shape_zyx}')
@@ -90,10 +94,26 @@ def extract_and_store(input_dir, output_dir):
     
     # --- Print out the results of initial extraction
     for tomogram, data in full_data.items():
-        print(f'\nFor tomogram {tomogram}, {len(list(data.values()))} objects were selected. Objects: {list(data.kets())}')
+        print(f'\nFor tomogram {tomogram}, {len(list(data.values()))} objects were selected. Objects: {list(data.keys())}')
     print('\n\nExtraction complete!')
+    # --- Making output directories
+    output_directory = utils.check_make_dir(directory=output_dir, job_name='extract')
 
-    # --- write out the dictionary into a csv file, or some sort of thing that can be used in objects
+    # --- Writing out the tomogram segmentations to mrc to the output directory
+    for tomogram, objects in full_data.items():
+        tomo_name = tomogram.split('.')[0]
+        filtered_array = np.zeros(shape=shape_zyx)
+        filtered_array = filtered_array.astype(np.float32)
+        #now go through all the objects, get their coordinates and labels and put them back in
+        for object in objects.values():
+            coords = object.coords
+            pix_label = object.label
+            filtered_array[coords[:, 0], coords[:, 1], coords[:, 2]] = pix_label
+        #now write a new mrc file
+        with mrcfile.new(name=f'{os.path.join(output_directory, tomo_name)}.mrc') as mrc:
+            mrc.set_data(filtered_array)
+            mrc.voxel_size = pix_size
+
     return full_data
 
 
@@ -108,7 +128,7 @@ def choose_object(data):
 
     The output of this function can be used to extract particle coordinates and output a star file.
 
-    :param data: CSV file containing the tomogram and its segmentation data, after filtering
+    :param data: CSV/mrc file containing the tomogram and its segmentation data, after filtering
     :type data: dict
 
     :return data_final: original dictionary modified with the appropriate choices from the user
@@ -136,5 +156,5 @@ def choose_object(data):
         return None
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
-def particle_extract(grid_sampling):
+def particle_extract(input_dir, grid_sampling):
     return None

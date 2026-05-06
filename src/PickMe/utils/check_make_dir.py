@@ -18,10 +18,19 @@ def check_make_dir(directory, job_name):
         outputs_directories = os.listdir('../outputs/')
         if directory not in outputs_directories:
             os.mkdir(f'../outputs/{directory}')
+            output_directory = f'../outputs/{directory}'
+            return output_directory
+        else:
+            output_directory = f'../outputs/{directory}'
+            return output_directory
     elif directory is None:
         directory = job_name
         outputs_directories = os.listdir('../outputs/')
         if directory not in outputs_directories:
             os.mkdir(f'../outputs/{directory}')
+            output_directory = f'../outputs/{directory}'
+            return output_directory
+        else: 
+            output_directory = f'../outputs/{directory}'
+            return output_directory
     
-    return None
