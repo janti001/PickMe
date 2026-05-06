@@ -14,6 +14,7 @@ import math as m
 import sampling
 import utils
 import filter
+import plotting
 
 
 # --- Setting up parameters and data structures ---
@@ -103,6 +104,8 @@ def choose_object(data):
     This function takes a user's choice of tomogram's segmentation files, and can specify the specific objects witin these tomograms in which they wish to keep.
     The user can only choose from objects which have passed the volume-based filter which aims to filter out noise.
 
+    This will open a napari window to allow users to visualise the objects in a particular tomogram.
+
     The output of this function can be used to extract particle coordinates and output a star file.
 
     :param data: CSV file containing the tomogram and its segmentation data, after filtering
@@ -112,10 +115,10 @@ def choose_object(data):
     :rtype data_final: dict
     '''
     #ask user if they want specific objects
-    ask_user = input('Before processing, are there any objects of interest you would like to select from the filtered set during processing?')
+    ask_user = input('Which objects of interest would you like to select from the filtered set for processing?')
     while ask_user.lower() not in ['y', 'yes', 'n', 'no']:
         print('Answer must be yes or no!')
-        ask_user = input('Before processing, are there any objects of interest you would like to select from the filtered set during processing?')
+        ask_user = input('Which objects of interest would you like to select from the filtered set for processing?')
     if ask_user.lower() in ['y', 'yes']:
         ask_user = True
     elif ask_user.lower() in ['n', 'no']:
