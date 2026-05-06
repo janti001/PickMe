@@ -2,4 +2,4 @@
 **/_pycache_
 *.egg-info
 .DS_Store
-./outputs/*
+outputs/*
