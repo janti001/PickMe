@@ -16,6 +16,9 @@ This project look to reduce redundancy and aid in membrane oversampling, particl
 # Disclaimer
 
 I am very open to the contribution to this project by anyone interested. For additional tools/functionalities that you feel should be contributed/want to contribute, feel free to contact me (see .toml file for info).
+
+## Additional Disclaimer
+This is intended as a CLI tool use, however, there are some useful functions which could be used from this package in your own scripts.
 <div>
 
 # Installation Instructions

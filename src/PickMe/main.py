@@ -100,21 +100,26 @@ def extract_and_store(input_dir, output_dir=None):
     output_directory = utils.check_make_dir(directory=output_dir, job_name='extract')
 
     # --- Writing out the tomogram segmentations to mrc to the output directory
-    for tomogram, objects in full_data.items():
-        tomo_name = tomogram.split('.')[0]
-        filtered_array = np.zeros(shape=shape_zyx)
-        filtered_array = filtered_array.astype(np.float32)
-        #now go through all the objects, get their coordinates and labels and put them back in
-        for object in objects.values():
-            coords = object.coords
-            pix_label = object.label
-            filtered_array[coords[:, 0], coords[:, 1], coords[:, 2]] = pix_label
-        #now write a new mrc file
-        with mrcfile.new(name=f'{os.path.join(output_directory, tomo_name)}.mrc') as mrc:
-            mrc.set_data(filtered_array)
-            mrc.voxel_size = pix_size
-
-    return full_data
+    print('Writing out tomogram segmentations to mrc.gz...')
+    with tqdm(total=len(full_data.keys()), desc='Writing new objects to mrc.gz', unit='Tomogram', leave=True) as pbar:
+        for tomogram, objects in full_data.items():
+            tomo_name = tomogram.split('.')[0]
+            filtered_array = np.zeros(shape=shape_zyx)
+            filtered_array = filtered_array.astype(np.float32)
+            #now go through all the objects, get their coordinates and labels and put them back in
+            #update pbar
+            pbar.set_postfix_str(f'Processing {mgraph}')
+            for object in objects.values():
+                coords = object.coords
+                pix_label = object.label
+                filtered_array[coords[:, 0], coords[:, 1], coords[:, 2]] = pix_label
+            #now write a new mrc file
+            with mrcfile.new(name=f'{os.path.join(output_directory, tomo_name)}.mrc.gz', compression='gzip') as mrc:
+                mrc.set_data(filtered_array)
+                mrc.voxel_size = pix_size
+            pbar.update(1)
+    #not sure to return full date or not
+    return None
 
 
 # --- Object choice with Napari plugin --- 
