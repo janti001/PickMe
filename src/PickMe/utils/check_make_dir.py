@@ -1,6 +1,6 @@
 import os
 
-def check_make_dir(directory, job_name):
+def check_make_dir(job_name, directory=None):
     '''
     When this function is called, it will check if there is an output directory for the current pipeline segment. 
     For example, if this is ran in extract_and_store, it will check if there is an extract directory in output.

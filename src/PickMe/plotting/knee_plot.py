@@ -1,6 +1,7 @@
 import seaborn as sns
 from matplotlib.pyplot import subplots, savefig
 import numpy as np
+from ..utils import check_make_dir
 
 
 def plot_knee(normalised_volume, index_threshold, norm_threshold, micrograph):
@@ -46,9 +47,10 @@ def plot_knee(normalised_volume, index_threshold, norm_threshold, micrograph):
     va='center', ha='right',
     transform=ax.get_yaxis_transform())
 
+    #Make plotting directory if it has not been made yet
+    output_directory = check_make_dir(job_name='plotting')
     # --- saving the figure
     #here we are assuming the user is using the same project structure
     #this can be changed
-    #this may have to be changed to get the directory paths correct
-    knee_plot.get_figure().savefig(f'../outputs/plots/{micrograph}_knee.png')
+    knee_plot.get_figure().savefig(f'{output_directory}/{micrograph}_knee.png')
 

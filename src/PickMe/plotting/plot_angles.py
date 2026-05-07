@@ -1,5 +1,6 @@
 import seaborn as sns 
 from matplotlib.pyplot import subplots
+from ..utils import check_make_dir
 
 def plot_angles(star_data):
     '''
@@ -23,5 +24,7 @@ def plot_angles(star_data):
     ax[1].set_title('Distribution of Rot Angles');
     ax[2].set_title('Distribution of Azimuthal Angles');
 
-    #print out the figure
-    fig.savefig(f'Angles_plot.png', format='png')
+    #make plotting directory if it has not been made yet
+    output_directory = check_make_dir(job_name='plotting')
+
+    fig.savefig(f'{output_directory}/Angles_plot.png', format='png')
