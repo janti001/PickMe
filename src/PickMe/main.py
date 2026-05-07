@@ -105,7 +105,7 @@ def extract_and_store(input_dir, output_dir=None):
         for tomogram, objects in full_data.items():
             tomo_name = tomogram.split('.')[0]
             filtered_array = np.zeros(shape=shape_zyx)
-            filtered_array = filtered_array.astype(np.float32)
+            filtered_array = filtered_array.astype(np.int8)
             #now go through all the objects, get their coordinates and labels and put them back in
             #update pbar
             pbar.set_postfix_str(f'Processing {mgraph}')
