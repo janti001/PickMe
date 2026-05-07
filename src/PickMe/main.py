@@ -114,7 +114,7 @@ def extract_and_store(input_dir, output_dir=None):
                 pix_label = object.label
                 filtered_array[coords[:, 0], coords[:, 1], coords[:, 2]] = pix_label
             #now write a new mrc file
-            with mrcfile.new(name=f'{os.path.join(output_directory, tomo_name)}.mrc.gz', compression='gzip') as mrc:
+            with mrcfile.new(name=f'{os.path.join(output_directory, tomo_name)}_filtered.mrc.gz', compression='gzip') as mrc:
                 mrc.set_data(filtered_array)
                 mrc.voxel_size = pix_size
             pbar.update(1)
@@ -124,7 +124,7 @@ def extract_and_store(input_dir, output_dir=None):
 
 # --- Object choice with Napari plugin --- 
 
-def choose_object(data):
+def choose_object(input_dir, napari, output_dir=None):
     '''
     This function takes a user's choice of tomogram's segmentation files, and can specify the specific objects witin these tomograms in which they wish to keep.
     The user can only choose from objects which have passed the volume-based filter which aims to filter out noise.

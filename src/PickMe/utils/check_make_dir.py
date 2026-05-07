@@ -12,6 +12,9 @@ def check_make_dir(job_name, directory=None):
     :param directory: Path of the directory for which we want to check.
     :param job_name: name of the type of job that is being run
     :type directory: str, pathlike
+    :type jobe_name: str
+
+    :return output_directory: file path of the output directory that was made
     '''
 
     if directory is not None:
