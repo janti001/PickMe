@@ -13,17 +13,10 @@ import os
 import sys
 import math as m
 
-import sampling
-import utils
-import filter
-import plotting
-
+from PickMe import sampling, utils, filter, plotting
+from .config import mgraph_suffix, star_suffix
 
 # --- Setting up parameters and data structures ---
-mgraph_suffix = '.tomostar'
-star_suffix = '.star'
-
-
 
 #instantiate the data structure to be used to write the star file
 star_dict = {'rlnCoordinateX':[],
@@ -54,7 +47,7 @@ def extract_and_store(input_dir: str, output_dir=None):
     '''
     Takes a list of tomogram segmentations, identifies all the objects, filter objects by NSR and provides a filtered object dataset, per tomogram.
     
-    :param input_dir: directory, pathlike, to the directory containing segmentation files
+    :param input_dir: directory, pathlike, to the directory containing ALL segmentation files
     :param output_dir: directory, pathlike, to  where outputs are to be put
     :type input_dir: string, pathlike
     :type output_dir:string, pathlike
@@ -74,8 +67,8 @@ def extract_and_store(input_dir: str, output_dir=None):
                 mgraph = utils.get_mgraph(file)
                 with mrcfile.open(file, mode='r') as mrc:
                     segmentation = mrc.data.copy()
+                    pix_size = mrc.voxel_size.x
                 shape_zyx = segmentation.shape
-                pix_size = segmentation.voxel_size.x
 
                 #add progress bar update
                 pbar.set_postfix_str(f'Processing {mgraph}... | shape (zyx)={shape_zyx}')
@@ -115,7 +108,8 @@ def extract_and_store(input_dir: str, output_dir=None):
                 pix_label = object.label
                 filtered_array[coords[:, 0], coords[:, 1], coords[:, 2]] = pix_label
             #now write a new mrc file
-            with mrcfile.new(name=f'{os.path.join(output_directory, tomo_name)}_filtered.mrc.gz', compression='gzip') as mrc:
+            out_path = f'{os.path.join(output_directory, tomo_name)}_filtered.mrc.gz'
+            with mrcfile.new(name=out_path, compression='gzip', overwrite=True) as mrc:
                 mrc.set_data(filtered_array)
                 mrc.voxel_size = pix_size
             pbar.update(1)
@@ -125,7 +119,7 @@ def extract_and_store(input_dir: str, output_dir=None):
 
 # --- Object choice with Napari plugin --- 
 
-def choose_object(input_dir:str, napari:bool, output_dir=None):
+def choose_object(input_dir:str, output_dir=None):
     '''
     This function takes a user's choice of tomogram's segmentation files, and can specify the specific objects witin these tomograms in which they wish to keep.
     The user can only choose from objects which have passed the volume-based filter which aims to filter out noise.
@@ -152,17 +146,17 @@ def choose_object(input_dir:str, napari:bool, output_dir=None):
     output_directory = utils.check_make_dir(job_name='choose')
 
     if ask_user == True:
-        tomogram_list = glob.glob(input_dir)
-        filtered_seg_list = glob.glob('../output/extract')
+        tomogram_list = glob.glob(f'{input_dir}/TS_*')
+        filtered_seg_list = glob.glob('/Users/jantinoro/Documents/LIDo/Rotation_2/python_projects/PickMe/outputs/extract/*filtered*')
         #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
-        #this could be changed to a class
-        data_dict = {}
+        data_dict={} #this could be changed to a class
+        valid_id = [seg.split('/')[-1].split('_')[1] for seg in filtered_seg_list]
         for tomogram in tomogram_list:
-            tomo_id_parts = tomogram.split('/')[-1].split('_')[:2]
-            tomo_id = f'{tomo_id_parts[0]}_{tomo_id_parts[1]}'
-            data_dict[tomo_id] = {'tomogram': tomogram}
-            data_dict[tomo_id].update({'segmentation': seg for seg in filtered_seg_list if tomo_id in seg})
-        
+            tomo_id = tomogram.split('/')[-1].split('_')[1]
+            if tomo_id in valid_id:
+                data_dict[tomo_id] = {'tomogram': tomogram}
+                data_dict[tomo_id].update({'segmentation': seg for seg in filtered_seg_list if tomo_id in seg})
+    
         #instantiate the napari viewer
         viewer = napari.Viewer()
 
@@ -216,7 +210,7 @@ def choose_object(input_dir:str, napari:bool, output_dir=None):
         _connected_table = None   # hold a reference so we can reconnect on subsequent Runs
 
         def _on_run_clicked(): #run button - "analyse" in the naari-skimage plugin
-            global _connected_table
+            nonlocal _connected_table
 
             table = _find_table()   # no argument needed now
             if table is None:
@@ -276,26 +270,35 @@ def choose_object(input_dir:str, napari:bool, output_dir=None):
         print("\n=== Final selections ===")
         for tomo, labels in final_selection.items():
             print(f"  {tomo}: {sorted(labels)}")
+        
 
 
         # --- Applying the selection and writing out files ---------------------
         #################################################################################################################################################################
         # Pre-build a lookup: tomo_id (stripped) -> full tomogram path
         # Avoids O(n*m) search in the final loop
-        tomogram_lookup = {}
+        tomogram_lookup_for_selection = {}
         for tomogram in tomogram_list:
             for key in final_selection:
                 if key in tomogram:
-                    tomogram_lookup[key] = tomogram
+                    tomogram_lookup_for_selection[key] = tomogram
                     break
-
+        #lookup for segmentation
+        #this allows me to cycle through this rather than write some selection material
+        segmentation_lookup_for_selction = {}
+        for segmentation in filtered_seg_list:
+            for key in final_selection:
+                if key in segmentation:
+                    segmentation_lookup_for_selction[tomo_id] = segmentation
         final_data = {}
 
-        print('Selecting objects from tomograms...')
+        print('Extracting selected objects from tomograms...')
         with tqdm(total=len(filtered_seg_list), desc='Running Extraction', unit='Tomogram', leave=True) as pbar:
-            for file in filtered_seg_list:
+            for file in segmentation_lookup_for_selction.values():
                 try:
                     mgraph = utils.get_mgraph(file)
+                    # Strip the key once
+                    tomo_id = mgraph.strip('.tomostar').split('_')[1] #just want the number portion of TS_1234
 
                     with mrcfile.open(file, mode='r') as mrc:
                         segmentation = mrc.data.copy()
@@ -307,9 +310,6 @@ def choose_object(input_dir:str, napari:bool, output_dir=None):
                     # Extract and filter objects in one step
                     objects_dict, _ = utils.object_extraction(segmentation)
 
-                    # Strip the key once
-                    tomo_id = mgraph.strip('.tomostar')
-
                     # Filter to selected labels immediately — no need to store full_data
                     selections = final_selection.get(tomo_id, set())
                     selected_objects = [obj for obj in objects_dict.values() if obj.label in selections]
@@ -320,33 +320,38 @@ def choose_object(input_dir:str, napari:bool, output_dir=None):
                 except Exception as e:
                     print(f'Error with file: {file}\n{e}')
                     raise
-
                 finally:
-                    pbar.update(1)  # always advance, even on failure
+                    pbar.update(1)
+
 
         # Write filtered segmentation masks
-        for tomo_id, selected_objects in final_data.items():
-            tomogram_path = tomogram_lookup.get(tomo_id)
-            if tomogram_path is None:
-                print(f'Warning: no matching tomogram found for {tomo_id}')
-                continue
+        print('Writing new objects to disk now as mrc.gz files')
+        with tqdm(total=len(final_data), desc='Writing', unit='Tomogram', leave=True) as pbar:
+            for tomo_id, selected_objects in final_data.items():
+                tomogram_path = tomogram_lookup_for_selection.get(tomo_id)
+                pbar.set_postfix_str(f'Processing tomogram: {tomo_id}...')
+                if tomogram_path is None:
+                    print(f'Warning: no matching tomogram found for {tomo_id}')
+                    continue
 
-            with mrcfile.open(tomogram_path, mode='r') as mrc:
-                shape_zyx = mrc.data.shape        # no .copy() needed for shape
-                pix_size = mrc.voxel_size.x
+                with mrcfile.open(tomogram_path, mode='r') as mrc:
+                    shape_zyx = mrc.data.shape        # no .copy() needed for shape
+                    pix_size = mrc.voxel_size.x
 
-            # Stack coords from all selected objects in one go
-            all_coords = np.vstack([obj.coords for obj in selected_objects])
+                # Stack coords from all selected objects in one go
+                all_coords = np.vstack([obj.coords for obj in selected_objects])
 
-            choice_array = np.zeros(shape_zyx, dtype=np.int8)
-            choice_array[all_coords[:, 0], all_coords[:, 1], all_coords[:, 2]] = 1
+                choice_array = np.zeros(shape_zyx, dtype=np.int8)
+                choice_array[all_coords[:, 0], all_coords[:, 1], all_coords[:, 2]] = 1
 
-            out_path = os.path.join(output_directory, f'{tomo_id}_filtered_chosen.mrc.gz')
-            with mrcfile.new(out_path, compression='gzip') as new_file:
-                new_file.set_data(choice_array)
-                new_file.voxel_size = pix_size
-                
-    return None
+                out_path = os.path.join(output_directory, f'{tomo_id}_filtered_chosen.mrc.gz')
+                with mrcfile.new(out_path, compression = 'gzip', overwrite=True) as new_file:
+                    new_file.set_data(choice_array)
+                    new_file.voxel_size = pix_size
+                pbar.update(1)
+        return None
+    else:
+        return None
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
 def particle_extract(input_dir: str, grid_sampling: int):

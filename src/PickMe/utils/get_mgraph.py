@@ -1,4 +1,4 @@
-from ..main import mgraph_suffix
+from ..config import mgraph_suffix
 
 def get_mgraph(segmentation_file_path):
     '''
