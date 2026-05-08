@@ -35,11 +35,11 @@ def _active_tomo_id() -> str | None:
     """Return the tomo_id of whichever labels layer is currently active."""
     layer = viewer.layers.selection.active
     if layer is not None and hasattr(layer, 'data') and '_segmentation' in layer.name:
-        return layer.name.replace('_segmentation', '')
+        return layer.name.replace('_segmentation', '') #this just ensures that we have the tomogram id - TS_xyxy
     return None
 
 
-# ── connect to the table after the user clicks Run ──────────────────────────
+# ── connect to the table after the user clicks Analyse ──────────────────────────
 dock_widget, plugin_widget = viewer.window.add_plugin_dock_widget(
     plugin_name='napari-skimage',
     widget_name='Regionprops (labels)'
@@ -54,7 +54,7 @@ def _find_table():
             return table
 
     # Fallback: search every dock widget napari has registered
-    for dock_name, dw in viewer.window._dock_widgets.items():
+    for dock_name, dw in viewer.window._dock_widgets.items(): #changed from _dock_widgets to dock_widgets  
         native = dw.native if hasattr(dw, 'native') else dw
         for cls in (QTableView, QTableWidget):
             table = native.findChild(cls)
@@ -66,14 +66,14 @@ def _find_table():
 
 _connected_table = None   # hold a reference so we can reconnect on subsequent Runs
 
-def _on_run_clicked():
+def _on_run_clicked(): #run button - "analyse" in the naari-skimage plugin
     global _connected_table
 
     table = _find_table()   # no argument needed now
     if table is None:
         print("[PickMe] Could not find regionprops table — try clicking Run first, or inspect dock widgets.")
         # Debug helper: print what dock widgets exist
-        print(f"[PickMe] Current dock widgets: {list(viewer.window._dock_widgets.keys())}")
+        print(f"[PickMe] Current dock widgets: {list(viewer.window._dock_widgets.keys())}") #changed from _dock_widgets to dock_widgets
         return
 
     if _connected_table is not None and _connected_table is not table:
