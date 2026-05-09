@@ -29,7 +29,7 @@ classifiers = [
 ]
 license="GPL-3.0-or-later"
 license-files=["LICEN[CS]E*"]
-keywords=['picking', 'membrane', 'picker']
+keywords=['picking', 'membrane', 'picker', 'pickme', 'Pickme', 'PickMe']
 
 [project.urls]
 HomePage="https://github.com/janti001/PickMe"
