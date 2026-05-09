@@ -21,7 +21,7 @@ def choose_tomograms(segmentation_directory):
     while ask_user.lower() not in ['y', 'yes', 'n', 'no']:
         print('Answer must be yes or no!')
         ask_user = input('Are there specific tomograms you want to process?')
-    if ask_user.lower in ['y', 'yes']:
+    if ask_user.lower() in ['y', 'yes']:
         print(f'Tomograms available to select from:\n\n{[file.split("/")[-1] for file in files]}\n')
         tomo_choices = re.findall(r'\d+', input('What specific tomograms would you like to process?'))
         files_choice = []

@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 
 def check_make_dir(job_name, directory=None):
     '''
@@ -17,23 +17,24 @@ def check_make_dir(job_name, directory=None):
     :return output_directory: file path of the output directory that was made
     '''
 
-    if directory is not None:
-        outputs_directories = os.listdir('../outputs/')
-        if directory not in outputs_directories:
-            os.mkdir(f'../outputs/{directory}')
-            output_directory = f'../outputs/{directory}'
-            return output_directory
-        else:
-            output_directory = f'../outputs/{directory}'
-            return output_directory
-    elif directory is None:
-        directory = job_name
-        outputs_directories = os.listdir('../outputs/')
-        if directory not in outputs_directories:
-            os.mkdir(f'../outputs/{directory}')
-            output_directory = f'../outputs/{directory}'
-            return output_directory
-        else: 
-            output_directory = f'../outputs/{directory}'
-            return output_directory
+    output_root = Path(__file__).resolve().parents[3] / 'outputs'
+    output_root.mkdir(exist_ok=True)
+
+    directory = directory if directory is not None else job_name
+    job_root = output_root / directory
+    job_root.mkdir(exist_ok=True)
+
+    job_numbers = []
+    for path in output_root.glob('*/job[0-9][0-9][0-9]'):
+        if path.is_dir():
+            try:
+                job_numbers.append(int(path.name.removeprefix('job')))
+            except ValueError:
+                continue
+
+    next_job_number = max(job_numbers, default=0) + 1
+    output_directory = job_root / f'job{next_job_number:03d}'
+    output_directory.mkdir()
+
+    return str(output_directory)
     

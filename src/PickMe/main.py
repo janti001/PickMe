@@ -12,6 +12,7 @@ import glob
 import os
 import sys
 import math as m
+from pathlib import Path
 
 from PickMe import sampling, utils, filter, plotting
 from .config import mgraph_suffix, star_suffix
@@ -134,7 +135,7 @@ def choose_object(input_dir:str, output_dir=None):
     :return None: compressed mrc.gz files are written out.
     '''
     #ask user if they want specific objects
-    ask_user = input('Are there any objects which you would like to select?')
+    ask_user = input('Are there any objects which you would like to select (y/n)?')
     while ask_user.lower() not in ['y', 'yes', 'n', 'no']:
         print('Answer must be yes or no!')
         ask_user = input('Which objects of interest would you like to select from the filtered set for processing?')
@@ -143,11 +144,18 @@ def choose_object(input_dir:str, output_dir=None):
     elif ask_user.lower() in ['n', 'no']:
         ask_user = False
 
-    output_directory = utils.check_make_dir(job_name='choose')
-
     if ask_user == True:
+        output_directory = utils.check_make_dir(directory=output_dir, job_name='choose')
         tomogram_list = glob.glob(f'{input_dir}/TS_*')
-        filtered_seg_list = glob.glob('/Users/jantinoro/Documents/LIDo/Rotation_2/python_projects/PickMe/outputs/extract/*filtered*')
+        outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
+        extract_jobs = sorted(
+            [path for path in (outputs_root / 'extract').glob('job[0-9][0-9][0-9]') if path.is_dir()]
+        )
+        if extract_jobs:
+            filtered_seg_list = glob.glob(str(extract_jobs[-1] / '*filtered*'))
+        else:
+            filtered_seg_list = glob.glob(str(outputs_root / 'extract' / '*filtered*'))
+        
         #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
         data_dict={} #this could be changed to a class
         valid_id = [seg.split('/')[-1].split('_')[1] for seg in filtered_seg_list]
@@ -274,38 +282,20 @@ def choose_object(input_dir:str, output_dir=None):
 
 
         # --- Applying the selection and writing out files ---------------------
-        #################################################################################################################################################################
-        # Pre-build a lookup: tomo_id (stripped) -> full tomogram path
-        # Avoids O(n*m) search in the final loop
-        tomogram_lookup_for_selection = {}
-        for tomogram in tomogram_list:
-            for key in final_selection:
-                if key in tomogram:
-                    tomogram_lookup_for_selection[key] = tomogram
-                    break
-        #lookup for segmentation
-        #this allows me to cycle through this rather than write some selection material
-        segmentation_lookup_for_selction = {}
-        for segmentation in filtered_seg_list:
-            for key in final_selection:
-                if key in segmentation:
-                    segmentation_lookup_for_selction[tomo_id] = segmentation
         final_data = {}
-
+        
+        #tomogram
         print('Extracting selected objects from tomograms...')
         with tqdm(total=len(filtered_seg_list), desc='Running Extraction', unit='Tomogram', leave=True) as pbar:
-            for file in segmentation_lookup_for_selction.values():
+            for tomo_id, data in data_dict.items():
                 try:
-                    mgraph = utils.get_mgraph(file)
-                    # Strip the key once
-                    tomo_id = mgraph.strip('.tomostar').split('_')[1] #just want the number portion of TS_1234
-
-                    with mrcfile.open(file, mode='r') as mrc:
+                    segmentation_path = data_dict.get(tomo_id)['segmentation']
+                    with mrcfile.open(segmentation_path, mode='r') as mrc:
                         segmentation = mrc.data.copy()
                         shape_zyx = segmentation.shape
                         pix_size = mrc.voxel_size.x  # avoid re-opening for voxel size
 
-                    pbar.set_postfix_str(f'Processing {mgraph} | shape (zyx)={shape_zyx}')
+                    pbar.set_postfix_str(f'Processing {tomo_id} | shape (zyx)={shape_zyx}')
 
                     # Extract and filter objects in one step
                     objects_dict, _ = utils.object_extraction(segmentation)
@@ -328,7 +318,9 @@ def choose_object(input_dir:str, output_dir=None):
         print('Writing new objects to disk now as mrc.gz files')
         with tqdm(total=len(final_data), desc='Writing', unit='Tomogram', leave=True) as pbar:
             for tomo_id, selected_objects in final_data.items():
-                tomogram_path = tomogram_lookup_for_selection.get(tomo_id)
+                print(tomo_id)
+                tomogram_path = data_dict.get(tomo_id)['tomogram']
+                print(f'tomogram path {tomogram_path}')
                 pbar.set_postfix_str(f'Processing tomogram: {tomo_id}...')
                 if tomogram_path is None:
                     print(f'Warning: no matching tomogram found for {tomo_id}')
@@ -351,7 +343,11 @@ def choose_object(input_dir:str, output_dir=None):
                 pbar.update(1)
         return None
     else:
+        print('The files have remained unchanged and are located in outputs/extract')
         return None
+
+
+
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
 def particle_extract(input_dir: str, grid_sampling: int):
