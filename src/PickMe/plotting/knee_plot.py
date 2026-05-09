@@ -1,10 +1,10 @@
 import seaborn as sns
-from matplotlib.pyplot import subplots, savefig
+from matplotlib.pyplot import close, subplots
 import numpy as np
-from ..utils import check_make_dir
+from pathlib import Path
 
 
-def plot_knee(normalised_volume, index_threshold, norm_threshold, micrograph):
+def plot_knee(normalised_volume, index_threshold, norm_threshold, micrograph, output_dir):
     """
     This function plots the volume-based filter so users can visualise the filter being imposed.
 
@@ -47,10 +47,8 @@ def plot_knee(normalised_volume, index_threshold, norm_threshold, micrograph):
     va='center', ha='right',
     transform=ax.get_yaxis_transform())
 
-    #Make plotting directory if it has not been made yet
-    output_directory = check_make_dir(job_name='plotting')
     # --- saving the figure
-    #here we are assuming the user is using the same project structure
-    #this can be changed
-    knee_plot.get_figure().savefig(f'{output_directory}/{micrograph}_knee.png')
-
+    plot_dir = Path(output_dir) / 'plots'
+    plot_dir.mkdir(exist_ok=True)
+    fig.savefig(plot_dir / f'{micrograph}_knee.png')
+    close(fig)

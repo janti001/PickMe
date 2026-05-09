@@ -4,7 +4,7 @@ from ..plotting import plot_knee
 
 
 
-def knee_detection(volume_array, objects_dictionary, micrograph, index=None):
+def knee_detection(volume_array, objects_dictionary, micrograph, output, index=None):
     '''
     This function performs a volume based filtering of the objects in the segmentation. 
 
@@ -61,11 +61,7 @@ def knee_detection(volume_array, objects_dictionary, micrograph, index=None):
 
 
         # --- Visualising the filter
-        if index is not None:
-            if index % 3 == 0: #print every third tomogram - this can be rmemoved
-                plot_knee(max_normalised, index_threshold=threshold, micrograph=micrograph, norm_threshold=threshold_normalised_value)
-        else:
-            plot_knee(max_normalised, index_threshold=threshold, micrograph=micrograph, norm_threshold=threshold_normalised_value)
+        plot_knee(max_normalised, index_threshold=threshold, micrograph=micrograph, norm_threshold=threshold_normalised_value, output_dir=output)
 
         return objects_filtered
 
@@ -73,4 +69,3 @@ def knee_detection(volume_array, objects_dictionary, micrograph, index=None):
         print('There was an error')
         print(f'Error: {e}')
         raise(e)
-

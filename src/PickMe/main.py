@@ -58,7 +58,8 @@ def extract_and_store(input_dir: str, output_dir=None):
 
     '''
     full_data = {} #this could be a class for sure
-
+    # --- Making output directories
+    output_directory = utils.check_make_dir(directory=output_dir, job_name='extract')
     #Get all objects 
     files = utils.choose_tomograms(segmentation_directory=input_dir)
     # --- Begin processing
@@ -76,7 +77,7 @@ def extract_and_store(input_dir: str, output_dir=None):
 
                 #getting out the objects of the tomograms and filtering out noise
                 objects_dict, volumes = utils.object_extraction(segmentation)
-                objects_filtered = filter.knee_detection(objects_dictionary=objects_dict, volume_array=volumes, micrograph=mgraph)
+                objects_filtered = filter.knee_detection(objects_dictionary=objects_dict, volume_array=volumes, micrograph=mgraph, output=output_directory)
                 #we now have filtered objects
                 #add them to our full data dictionary
                 full_data[f'{mgraph}'] = objects_filtered #this could be a class for sure
@@ -91,8 +92,6 @@ def extract_and_store(input_dir: str, output_dir=None):
     for tomogram, data in full_data.items():
         print(f'\nFor tomogram {tomogram}, {len(list(data.values()))} objects were selected. Objects: {list(data.keys())}')
     print('\n\nExtraction complete!')
-    # --- Making output directories
-    output_directory = utils.check_make_dir(directory=output_dir, job_name='extract')
 
     # --- Writing out the tomogram segmentations to mrc to the output directory
     print('Writing out tomogram segmentations to mrc.gz...')
