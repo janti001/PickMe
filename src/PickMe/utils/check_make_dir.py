@@ -16,7 +16,7 @@ def check_make_dir(job_name, directory=None):
 
     :return output_directory: file path of the output directory that was made
     '''
-
+    
     output_root = Path(__file__).resolve().parents[3] / 'outputs'
     output_root.mkdir(exist_ok=True)
 
