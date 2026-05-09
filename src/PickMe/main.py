@@ -7,6 +7,7 @@ from scipy.ndimage import gaussian_filter, center_of_mass
 import seaborn as sns
 from qtpy.QtWidgets import QAbstractItemView, QTableView, QTableWidget, QPushButton
 import napari
+from skimage.measure import regionprops, marching_cubes
 
 import glob
 import os
@@ -14,7 +15,7 @@ import sys
 import math as m
 from pathlib import Path
 
-from PickMe import sampling, utils, filter, plotting
+from PickMe import sampling, utils, filter, plotting, angles
 from .config import mgraph_suffix, star_suffix
 
 # --- Setting up parameters and data structures ---
@@ -59,7 +60,7 @@ def extract_and_store(input_dir: str, output_dir=None):
     '''
     full_data = {} #this could be a class for sure
     # --- Making output directories
-    output_directory = utils.check_make_dir(directory=output_dir, job_name='extract')
+    output_directory = utils.check_make_dir(directory=output_dir, job_name='filter')
     #Get all objects 
     files = utils.choose_tomograms(segmentation_directory=input_dir)
     # --- Begin processing
@@ -143,27 +144,30 @@ def choose_object(input_dir:str, output_dir=None):
     elif ask_user.lower() in ['n', 'no']:
         ask_user = False
 
-    if ask_user == True:
-        output_directory = utils.check_make_dir(directory=output_dir, job_name='choose')
-        tomogram_list = glob.glob(f'{input_dir}/TS_*')
-        outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
-        extract_jobs = sorted(
-            [path for path in (outputs_root / 'extract').glob('job[0-9][0-9][0-9]') if path.is_dir()]
-        )
-        if extract_jobs:
-            filtered_seg_list = glob.glob(str(extract_jobs[-1] / '*filtered*'))
-        else:
-            filtered_seg_list = glob.glob(str(outputs_root / 'extract' / '*filtered*'))
-        
-        #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
-        data_dict={} #this could be changed to a class
-        valid_id = [seg.split('/')[-1].split('_')[1] for seg in filtered_seg_list]
-        for tomogram in tomogram_list:
-            tomo_id = tomogram.split('/')[-1].split('_')[1]
-            if tomo_id in valid_id:
-                data_dict[tomo_id] = {'tomogram': tomogram}
-                data_dict[tomo_id].update({'segmentation': seg for seg in filtered_seg_list if tomo_id in seg})
+    #--- setting up directories and data structures
+    #getting directories sorted so we can dispatch outputs
+    output_directory = utils.check_make_dir(directory=output_dir, job_name='choose')
+    tomogram_list = glob.glob(f'{input_dir}/TS_*')
+    outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
+    extract_jobs = sorted(
+        [job for job in (outputs_root / 'extract').glob('job[0-9][0-9][0-9]') if job.is_dir()]
+    )
+    if extract_jobs:
+        filtered_seg_list = glob.glob(str(extract_jobs[-1] / '*filtered*'))
+    else:
+        filtered_seg_list = glob.glob(str(outputs_root / 'extract' / '*filtered*'))
     
+    #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
+    data_dict={} #this could be changed to a class
+    valid_id = [seg.split('/')[-1].split('_')[1] for seg in filtered_seg_list] #we only want the tomograms that are in extract job
+    for tomogram in tomogram_list:
+        tomo_id = tomogram.split('/')[-1].split('_')[1]
+        if tomo_id in valid_id:
+            data_dict[tomo_id] = {'tomogram': tomogram}
+            data_dict[tomo_id].update({'segmentation': seg for seg in filtered_seg_list if tomo_id in seg})
+
+    if ask_user == True:
+
         #instantiate the napari viewer
         viewer = napari.Viewer()
 
@@ -307,7 +311,7 @@ def choose_object(input_dir:str, output_dir=None):
                         final_data[tomo_id] = selected_objects
 
                 except Exception as e:
-                    print(f'Error with file: {file}\n{e}')
+                    print(f'Error with file: {tomo_id}\n{e}')
                     raise
                 finally:
                     pbar.update(1)
@@ -330,10 +334,12 @@ def choose_object(input_dir:str, output_dir=None):
                     pix_size = mrc.voxel_size.x
 
                 # Stack coords from all selected objects in one go
-                all_coords = np.vstack([obj.coords for obj in selected_objects])
-
+                #all_coords = np.vstack([obj.coords for obj in selected_objects])
                 choice_array = np.zeros(shape_zyx, dtype=np.int8)
-                choice_array[all_coords[:, 0], all_coords[:, 1], all_coords[:, 2]] = 1
+                #go through each object, obtain coordinates, and set pixel value to the label value
+                for object in selected_objects:
+                    zcoords, ycoords, xcoords = object.coords[:, 0], object.coords[:, 1], object.coords[:, 2]
+                    choice_array[zcoords, ycoords, xcoords] = object.label
 
                 out_path = os.path.join(output_directory, f'{tomo_id}_filtered_chosen.mrc.gz')
                 with mrcfile.new(out_path, compression = 'gzip', overwrite=True) as new_file:
@@ -342,6 +348,10 @@ def choose_object(input_dir:str, output_dir=None):
                 pbar.update(1)
         return None
     else:
+        #we just re write out the files?
+        #create a symlink?
+        #copy the files?
+
         print('The files have remained unchanged and are located in outputs/extract')
         return None
 
@@ -349,5 +359,91 @@ def choose_object(input_dir:str, output_dir=None):
 
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
-def particle_extract(input_dir: str, grid_sampling: int):
-    return None
+def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
+    '''
+    This function will take the objects that have been filtered and selected and particle extraction begins.
+
+    Particle extraction involves:
+    - Gaussian smoothing the segmentation to get a smoother marching cubes output
+    - creating a triangular mesh across all of the desired objects
+    - sample these points at a set pixel distance
+    - calculate euler angles and make data entries to be stored in a dataframe
+    - write out dataframe to a star file
+    - Optionally, users can write out the particles to a .cmm file
+
+    :params input_dir: Directory containing the filtered and chosen segmentation objects. Users can provide their own segmentations, or be a part of the pipeline.
+    :params grid_sampling: The minimum radius distance enforced between particle points
+    :params cmm: boolean, Option to enable the output of particle picks to a .cmm
+    :type grid_sampling: int
+    :type cmm: bool
+
+    :return: None
+    '''
+    #set the output directory
+    output_directory = utils.check_make_dir(job_name='particle_extraction')
+    #check which job number we are on
+    outputs_root = Path(__file__).resolve().parent[2] / 'outputs'
+    choose_jobs = sorted([job for job in (outputs_root / 'choose').glob("**/job[0-9][0-9][0-9]") if job.is_dir()])
+    #if there is no input, we assume the latest job number in choose directory as input
+    if input_dir is None and choose_jobs: #choose obs has to return something - i.e., the choose job has to be run at least once prior if no input directory is provided
+        #retrieve the files from the output/choose directory - latest job
+        files = glob.glob(f'{choose_jobs[-1]} / *chosen*')
+    if input_dir is None and not choose_jobs:
+        raise RuntimeError('choose_object job must be run if you are to provide no input directory')
+    #possibility of having input dir
+    if input_dir is not None:
+        print('WARNING: files must be in mrc, mrc.gz, mrc.bz2')
+        files = glob.glob(f'{input_dir}/*mrc') + glob.glob(f'{input_dir}/*mrc.gz') + glob.glob(f'{input_dir}/*mrc.bz2')
+
+    cmm_ask = input('Do you want to ouptut the particle coordinates and normals into a .cmm file?')
+    print(f'Processing {len(files)} files now....\n')
+
+    # --- Begin processing
+    total_particles = 0
+    with tqdm(total=len(files), desc='Extracting particles', unit='file', dynamic_ncols=True,
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [Elapsed(s):{elapsed}<>Remaining(s):{remaining}, {rate_fmt}] {postfix}') as pbar:
+        try:
+            for file in files:
+                per_tomo_data = pd.DataFrame.from_dict({})
+                # --- open up segmentation file and extract pixel size and data
+                with mrcfile.open(file) as mrc:
+                    mrc_data = mrc.data.copy()
+                    shape_zyx = mrc_data.shape
+                    pixel_size = mrc.voxel_size.x
+                # Obtain objects from segmentations
+                objects_dict = utils.object_extraction(mrc_data)
+                tomo_name = utils.get_mgraph(file) #this is .tomostar file
+
+                for object in objects_dict.values():
+                    object_array = np.zeros(shape=shape_zyx)
+                    object_coords = object.coords #in zyx
+                    object_array = [object_coords[:, 0], object_coords[:, 1], object_coords[:, 2]] = 1
+                    #gaussian smooth all of the objects in the mrc files
+                    smooth_object = gaussian_filter(object_array.astype(float), sigma=3.0)
+
+                    # -- Perform marching cubes and particle extraction
+                    #This creates a triangular mesh
+                    verts, _, normals, _ = marching_cubes(volume=smooth_object)
+                    # -- enforce grid sampling here
+                    particle_dict = sampling.non_random_membrane_sampling(coords=verts, normal_vectors=normals)
+                    # -- calculate euler angles and other data needed for star file
+                    data_entries = angles.euler_star(centre_of_mass=object.centroid, particles=particle_dict, label=int(object.label), micrograph=tomo_name, tomo_dimensions=shape_zyx)
+
+                    total_particles += len(data_entries)
+                    per_tomo_data_df = pd.concat([per_tomo_data_df, pd.DataFrame.from_dict(data_entries)], ignore_index=True)
+
+                #Write out a star file, per tomogram
+                tomogram_star_df = pd.DataFrame.from_dict(per_tomo_data_df)
+                # ---- continue from here........ need to write out star file
+
+
+                #When we finish one tomogram, update progress bar
+                pbar.update(1)
+        except Exception as e:
+            raise(e)
+
+
+        
+
+def decompress(input_dir):
+    pass
