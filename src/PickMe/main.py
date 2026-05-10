@@ -20,24 +20,6 @@ from .config import mgraph_suffix, star_suffix
 
 # --- Setting up parameters and data structures ---
 
-#instantiate the data structure to be used to write the star file
-star_dict = {'rlnCoordinateX':[],
-             'rlnCoordinateY':[],
-             'rlnCoordinateZ':[],
-             'rlnOriginX':[],
-             'rlnOriginY':[],
-             'rlnOriginZ':[],
-             'rlnAngleRot':[],
-             'rlnAngleTilt':[],
-             'rlnAnglePsi':[],
-             'rlnLCCmax':[],
-             'rlnCutOff':[],
-             'rlnSearchStd':[],
-             'rlnDetectorPixelSize':[],
-             'rlnMicrographName':[]} #This is .tomostar files -> TS_1234.tomostar
-
-total_star_df = pd.DataFrame.from_dict(star_dict)
-per_tomogram_star_df = total_star_df.copy()
 #will make a particle row dictionary in a for loop within the segmentation mesh - loop over vertices
 full_data_dict = {} #dictionary associating tomogram, with objects, and the objects data
 
@@ -379,6 +361,26 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
 
     :return: None
     '''
+    # --- Data structures
+    #instantiate the data structure to be used to write the star file
+    star_dict = {'rlnCoordinateX':[],
+                'rlnCoordinateY':[],
+                'rlnCoordinateZ':[],
+                'rlnOriginX':[],
+                'rlnOriginY':[],
+                'rlnOriginZ':[],
+                'rlnAngleRot':[],
+                'rlnAngleTilt':[],
+                'rlnAnglePsi':[],
+                'rlnLCCmax':[],
+                'rlnCutOff':[],
+                'rlnSearchStd':[],
+                'rlnDetectorPixelSize':[],
+                'rlnMicrographName':[]} #This is .tomostar files -> TS_1234.tomostar
+
+    total_star_df = pd.DataFrame.from_dict(star_dict)
+    tomogram_star_df = total_star_df.copy()
+
     #set the output directory
     output_directory = utils.check_make_dir(job_name='particle_extraction')
     #check which job number we are on
@@ -399,7 +401,6 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
     print(f'Processing {len(files)} files now....\n')
 
     # --- Begin processing
-    total_particles = 0
     with tqdm(total=len(files), desc='Extracting particles', unit='file', dynamic_ncols=True,
               bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [Elapsed(s):{elapsed}<>Remaining(s):{remaining}, {rate_fmt}] {postfix}') as pbar:
         try:
@@ -427,21 +428,34 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
                     # -- enforce grid sampling here
                     particle_dict = sampling.non_random_membrane_sampling(coords=verts, normal_vectors=normals)
                     # -- calculate euler angles and other data needed for star file
-                    data_entries = angles.euler_star(centre_of_mass=object.centroid, particles=particle_dict, label=int(object.label), micrograph=tomo_name, tomo_dimensions=shape_zyx)
-
-                    total_particles += len(data_entries)
-                    per_tomo_data_df = pd.concat([per_tomo_data_df, pd.DataFrame.from_dict(data_entries)], ignore_index=True)
+                    data_entries = angles.euler_star(centre_of_mass=object.centroid, particles=particle_dict, label=int(object.label), micrograph=tomo_name, tomo_dimensions=shape_zyx, psize=pixel_size)
+                    per_tomo_data = pd.concat([per_tomo_data, pd.DataFrame.from_dict(data_entries)], ignore_index=True)
 
                 #Write out a star file, per tomogram
-                tomogram_star_df = pd.DataFrame.from_dict(per_tomo_data_df)
-                # ---- continue from here........ need to write out star file
-
-
+                tomogram_star_df = pd.DataFrame.from_dict(per_tomo_data)
+                #Write out angles plots for each tomogram
+                plotting.plot_angles(star_data=tomogram_star_df, output_dir=output_directory, tomogram_name=tomo_name)
+                # --- Write out star files per tomogram
+                starfile.write(tomogram_star_df, f'{output_directory}/{tomo_name}.star')
+                total_star_df = pd.concat([total_star_df, tomogram_star_df], ignore_index=True)
+                # --- Write out .cmm files
+                utils.cmm_write(data = tomogram_star_df, tomogram_name=tomo_name, output_directory=output_directory, sampling=grid_sampling)
                 #When we finish one tomogram, update progress bar
                 pbar.update(1)
         except Exception as e:
             raise(e)
+    # Write out a starfile with all objects and particles across all tomograms processed
+    starfile.write(total_star_df, os.path.join(output_directory, 'particles.star'))
+    print(f'All article data has been written to star files in {output_directory}!')
 
+    # --- Print out the total number of particles sampled across all tomograms and objects
+    particle_overview = dict(total_star_df['rlnMicrographName'].value_counts()) #counts how many particles retrieved in each micrograph
+    print('\n')
+    for tomogram, particle_count in particle_overview.items():
+        print(f'Tomogram: {tomogram} | Particles samples: {particle_count}')
+    print(f'\nTotal Particles sampled: {total_star_df.shape[0]}')
+
+    return None
 
         
 
