@@ -365,6 +365,12 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
 
     :return: None
     '''
+    # --- Type checking
+    if not isinstance(cmm, bool):
+        print('If CMM argument is provided, it must be True or False')
+        raise(TypeError)
+    
+    
     # --- Data structures
     #instantiate the data structure to be used to write the star file
     star_dict = {'rlnCoordinateX':[],
@@ -443,7 +449,8 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
                 starfile.write(tomogram_star_df, f'{output_directory}/{tomo_name}.star')
                 total_star_df = pd.concat([total_star_df, tomogram_star_df], ignore_index=True)
                 # --- Write out .cmm files
-                utils.cmm_write(data = tomogram_star_df, tomogram_name=tomo_name, output_directory=output_directory, sampling=grid_sampling)
+                if cmm == True:
+                    utils.cmm_write(data = tomogram_star_df, tomogram_name=tomo_name, output_directory=output_directory, sampling=grid_sampling)
                 #When we finish one tomogram, update progress bar
                 pbar.update(1)
         except Exception as e:
