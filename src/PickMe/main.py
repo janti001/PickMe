@@ -102,7 +102,7 @@ def extract_and_store(input_dir: str, output_dir=None):
 
 # --- Object choice with Napari plugin --- 
 
-def choose_object(input_dir:str, output_dir=None):
+def choose_object(input_dir:str, segmentation_dir = None, output_dir=None):
     '''
     This function takes a user's choice of tomogram's segmentation files, and can specify the specific objects witin these tomograms in which they wish to keep.
     The user can only choose from objects which have passed the volume-based filter which aims to filter out noise.
@@ -112,6 +112,7 @@ def choose_object(input_dir:str, output_dir=None):
     The output of this function can be used to extract particle coordinates and output a star file.
 
     :param input_dir: Directory containing the tomograms, these should be the tomograms from which segmentations where performed.
+    :param segmentation_dir: If users have a segmentation that they want to pick specific objects, they can supply the directory of these. Here, we assume that the segmetation files are in mrc format.
     :type input_dir: str, pathlike
 
     :return None: compressed mrc.gz files are written out.
@@ -130,14 +131,17 @@ def choose_object(input_dir:str, output_dir=None):
     #getting directories sorted so we can dispatch outputs
     output_directory = utils.check_make_dir(directory=output_dir, job_name='choose')
     tomogram_list = glob.glob(f'{input_dir}/TS_*')
-    outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
-    extract_jobs = sorted(
-        [job for job in (outputs_root / 'extract').glob('job[0-9][0-9][0-9]') if job.is_dir()]
-    )
-    if extract_jobs:
-        filtered_seg_list = glob.glob(str(extract_jobs[-1] / '*filtered*'))
+    if segmentation_dir is None:
+        outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
+        extract_jobs = sorted(
+            [job for job in (outputs_root / 'extract').glob('job[0-9][0-9][0-9]') if job.is_dir()]
+        )
+        if extract_jobs:
+            filtered_seg_list = glob.glob(str(extract_jobs[-1] / '*filtered*'))
+        else:
+            filtered_seg_list = glob.glob(str(outputs_root / 'extract' / '*filtered*'))
     else:
-        filtered_seg_list = glob.glob(str(outputs_root / 'extract' / '*filtered*'))
+        filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc') #This o
     
     #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
     data_dict={} #this could be changed to a class
