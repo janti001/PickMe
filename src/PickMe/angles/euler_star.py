@@ -70,7 +70,8 @@ def euler_star(centre_of_mass, particles, label, micrograph, **details):
                 'rlnObject':label,
                 'rlnNormalX':nx,
                 'rlnNormalY':ny,
-                'rlnNormalZ':nz}
+                'rlnNormalZ':nz,
+                'rlnImagePixelSize': details['psize']}
             data_rows.append(row)
     return data_rows
 
