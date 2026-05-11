@@ -102,7 +102,7 @@ def extract_and_store(input_dir: str, output_dir=None):
 
 # --- Object choice with Napari plugin --- 
 
-def choose_object(input_dir:str, segmentation_dir = None, output_dir=None):
+def choose_object(input_dir:str, segmentation_dir = None, output_dir=None, compress=None):
     '''
     This function takes a user's choice of tomogram's segmentation files, and can specify the specific objects witin these tomograms in which they wish to keep.
     The user can only choose from objects which have passed the volume-based filter which aims to filter out noise.
@@ -113,7 +113,9 @@ def choose_object(input_dir:str, segmentation_dir = None, output_dir=None):
 
     :param input_dir: Directory containing the tomograms, these should be the tomograms from which segmentations where performed.
     :param segmentation_dir: If users have a segmentation that they want to pick specific objects, they can supply the directory of these. Here, we assume that the segmetation files are in mrc format.
+    :param output_dir: user can select a desired directory to output this job - NOT RECOMMENDED
     :type input_dir: str, pathlike
+    :type segmentation_dir: str, pathlike
 
     :return None: compressed mrc.gz files are written out.
     '''
