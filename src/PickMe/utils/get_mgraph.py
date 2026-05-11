@@ -1,12 +1,13 @@
 from pathlib import PosixPath
 from ..config import mgraph_suffix
 
-def get_mgraph(segmentation_file_path):
+def get_mgraph(segmentation_file_path, caller=None):
     '''
     This function, from the name of the segmentation file, will be able to get the .tomostar microgaph file.
     It will also obtain which object the membrane is, and allow the star file to be written out per object
 
     :param segmentation: string of the file path
+    :param caller: can tell function where it is being used an adjust the function as a result
     :type segmentation: str
     :return: Name of the .tomostar file
     :rtype: str
@@ -23,7 +24,7 @@ def get_mgraph(segmentation_file_path):
     #check if it is from object choice job
     if "chosen" in segmentation_file:
         mgraph_name = segmentation_file.strip('.mrc.gz')
-    else:
+    if caller == 'particle_extract':
         mgraph_parts = segmentation_file.split('_')
         mgraph_name = mgraph_parts[0]+'_'+mgraph_parts[1]+mgraph_suffix
     return mgraph_name
