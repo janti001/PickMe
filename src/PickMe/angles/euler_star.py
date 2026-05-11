@@ -30,7 +30,7 @@ def euler_star(centre_of_mass, particles, label, micrograph, **details):
     
     centz, centy, centx = centre_of_mass[0], centre_of_mass[1], centre_of_mass[2]
 
-    #micrograph coming in is: XXYY_filtered_chosen -we need to get it to TS_XXYY.tomostar
+
     #loop through particles
 
     for particle in particles.values():
