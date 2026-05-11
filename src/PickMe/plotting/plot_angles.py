@@ -31,7 +31,8 @@ def plot_angles(star_data, output_dir, tomogram_name=None):
     ax[2].set_title('Distribution of Azimuthal Angles');
 
     #make plotting directory if it has not been made yet
-    output_directory = Path(output_dir) / 'Angle_plots'
+    output_directory = Path(output_dir) / 'AnglePlots'
+    output_directory.mkdir(exist_ok=True)
     if tomogram_name is not None:
         fig.savefig(f'{output_directory}/{tomogram_name}.png', format='png')
     fig.savefig(f'{output_directory}/Angles_distribution.png', format='png')
