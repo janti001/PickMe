@@ -35,4 +35,5 @@ def plot_angles(star_data, output_dir, tomogram_name=None):
     output_directory.mkdir(exist_ok=True)
     if tomogram_name is not None:
         fig.savefig(f'{output_directory}/{tomogram_name}.png', format='png')
-    fig.savefig(f'{output_directory}/Angles_distribution.png', format='png')
+    else:
+        fig.savefig(f'{output_directory}/Angles_distribution.png', format='png')
