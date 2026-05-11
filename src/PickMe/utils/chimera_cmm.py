@@ -10,7 +10,7 @@ def cmm_write(data: pd.DataFrame, tomogram_name:str, output_directory, **kwargs)
     '''
     grid_sampling = kwargs['sampling']
     with open (f'{output_directory}/{tomogram_name}.cmm', 'w') as cmm:
-        cmm.write(f'<marker_set name={tomogram_name} @ {grid_sampling} sampling')
+        cmm.write(f'<marker_set name="{tomogram_name} @ {grid_sampling} sampling"')
         for i in range(data.shape[0]):
             entry = data.iloc[i]
             x, y, z = entry['rlnCoordinateX'], entry['rlnCoordinateY'], entry['rlnCoordinateZ']
