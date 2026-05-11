@@ -20,10 +20,10 @@ def shuffle_sampling(coords, normal_vectors, grid_samping):
 
     '''
     # --- Checking data types are correct before processin
-    if not isinstance(coords, (array, ndarray)):
+    if not isinstance(coords, ndarray):
         raise TypeError('Coordinates must be a numpy array or numpy ndarray')
 
-    if not isinstance(normal_vectors, (array, ndarray)):
+    if not isinstance(normal_vectors, ndarray):
         raise TypeError('Normal vectors must be a numpy array or numpy ndarray')
     
     if not isinstance(grid_samping, int):
@@ -80,13 +80,13 @@ def non_random_membrane_sampling(coords, normal_vectors, grid_sampling):
 
     '''
     # --- Checking data types are correct before processin
-    if not isinstance(coords, (array, ndarray)):
+    if not isinstance(coords, ndarray):
         raise TypeError('Coordinates must be a numpy array or numpy ndarray')
 
-    if not isinstance(normal_vectors, (array, ndarray)):
+    if not isinstance(normal_vectors, ndarray):
         raise TypeError('Normal vectors must be a numpy array or numpy ndarray')
     
-    if not isinstance(grid_samping, int):
+    if not isinstance(grid_sampling, int):
         raise TypeError('Grid sampling rate must be an integer value')
     particles = {}
     used=set()
@@ -129,13 +129,13 @@ def density_based_sampling(coords, normal_vectors, grid_sampling):
 
     '''
     # --- Checking data types are correct before processin
-    if not isinstance(coords, (array, ndarray)):
+    if not isinstance(coords, ndarray):
         raise TypeError('Coordinates must be a numpy array or numpy ndarray')
 
-    if not isinstance(normal_vectors, (array, ndarray)):
+    if not isinstance(normal_vectors, ndarray):
         raise TypeError('Normal vectors must be a numpy array or numpy ndarray')
     
-    if not isinstance(grid_samping, int):
+    if not isinstance(grid_sampling, int):
         raise TypeError('Grid sampling rate must be an integer value')
     
     particles = {}
