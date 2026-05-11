@@ -134,14 +134,14 @@ def choose_object(input_dir:str, segmentation_dir = None, output_dir=None):
     if segmentation_dir is None:
         outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
         extract_jobs = sorted(
-            [job for job in (outputs_root / 'extract').glob('job[0-9][0-9][0-9]') if job.is_dir()]
+            [job for job in (outputs_root / 'filter').glob('job[0-9][0-9][0-9]') if job.is_dir()]
         )
         if extract_jobs:
             filtered_seg_list = glob.glob(str(extract_jobs[-1] / '*filtered*'))
         else:
-            filtered_seg_list = glob.glob(str(outputs_root / 'extract' / '*filtered*'))
+            filtered_seg_list = glob.glob(str(outputs_root / 'filter' / '*filtered*'))
     else:
-        filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc') #This o
+        filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc*') #This o
     
     #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
     data_dict={} #this could be changed to a class
@@ -273,7 +273,6 @@ def choose_object(input_dir:str, segmentation_dir = None, output_dir=None):
         # --- Applying the selection and writing out files ---------------------
         final_data = {}
         
-        #tomogram
         print('Extracting selected objects from tomograms...')
         with tqdm(total=len(filtered_seg_list), desc='Running Extraction', unit='Tomogram', leave=True) as pbar:
             for tomo_id, data in data_dict.items():
@@ -332,20 +331,21 @@ def choose_object(input_dir:str, segmentation_dir = None, output_dir=None):
                     new_file.set_data(choice_array)
                     new_file.voxel_size = pix_size
                 pbar.update(1)
+        print(f'All object data has been written to gzipped mrc files in {output_directory}!')
         return None
     else:
         #we just re write out the files?
         #create a symlink?
         #copy the files?
 
-        print('The files have remained unchanged and are located in outputs/extract')
+        print(f'The files have remained unchanged and are located in outputs/extract/{extract_jobs[-1]}')
         return None
 
 
 
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
-def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
+def particle_extract(sample_rate: int, cmm: bool, input_dir=None):
     '''
     This function will take the objects that have been filtered and selected and particle extraction begins.
 
@@ -358,9 +358,9 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
     - Optionally, users can write out the particles to a .cmm file
 
     :params input_dir: Directory containing the filtered and chosen segmentation objects. Users can provide their own segmentations, or be a part of the pipeline.
-    :params grid_sampling: The minimum radius distance enforced between particle points
+    :params sample_rate: The minimum radius distance enforced between particle points
     :params cmm: boolean, Option to enable the output of particle picks to a .cmm
-    :type grid_sampling: int
+    :type sample_rate: int
     :type cmm: bool
 
     :return: None
@@ -394,12 +394,12 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
     #set the output directory
     output_directory = utils.check_make_dir(job_name='particle_extraction')
     #check which job number we are on
-    outputs_root = Path(__file__).resolve().parent[2] / 'outputs'
+    outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
     choose_jobs = sorted([job for job in (outputs_root / 'choose').glob("**/job[0-9][0-9][0-9]") if job.is_dir()])
     #if there is no input, we assume the latest job number in choose directory as input
     if input_dir is None and choose_jobs: #choose obs has to return something - i.e., the choose job has to be run at least once prior if no input directory is provided
         #retrieve the files from the output/choose directory - latest job
-        files = glob.glob(f'{choose_jobs[-1]} / *chosen*')
+        files = list(choose_jobs[-1].glob('*chosen*')) #we use glob method with Posix Path as it is a Path object, not a string
     if input_dir is None and not choose_jobs:
         raise RuntimeError('choose_object job must be run if you are to provide no input directory')
     #possibility of having input dir
@@ -422,13 +422,15 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
                     shape_zyx = mrc_data.shape
                     pixel_size = mrc.voxel_size.x
                 # Obtain objects from segmentations
-                objects_dict = utils.object_extraction(mrc_data)
+                objects_dict, _ = utils.object_extraction(mrc_data)
                 tomo_name = utils.get_mgraph(file) #this is .tomostar file
+                print(tomo_name)
 
                 for object in objects_dict.values():
-                    object_array = np.zeros(shape=shape_zyx)
+                    object_array = np.zeros(shape=shape_zyx, dtype=np.int8)
                     object_coords = object.coords #in zyx
-                    object_array = [object_coords[:, 0], object_coords[:, 1], object_coords[:, 2]] = 1
+                    zcoords, ycoords, xcoords = object.coords[:, 0], object.coords[:, 1], object.coords[:, 2]
+                    object_array[zcoords, ycoords, xcoords] = 1
                     #gaussian smooth all of the objects in the mrc files
                     smooth_object = gaussian_filter(object_array.astype(float), sigma=3.0)
 
@@ -436,7 +438,7 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
                     #This creates a triangular mesh
                     verts, _, normals, _ = marching_cubes(volume=smooth_object)
                     # -- enforce grid sampling here
-                    particle_dict = sampling.non_random_membrane_sampling(coords=verts, normal_vectors=normals)
+                    particle_dict = sampling.non_random_membrane_sampling(coords=verts, normal_vectors=normals, grid_sampling=sample_rate)
                     # -- calculate euler angles and other data needed for star file
                     data_entries = angles.euler_star(centre_of_mass=object.centroid, particles=particle_dict, label=int(object.label), micrograph=tomo_name, tomo_dimensions=shape_zyx, psize=pixel_size)
                     per_tomo_data = pd.concat([per_tomo_data, pd.DataFrame.from_dict(data_entries)], ignore_index=True)
@@ -450,14 +452,14 @@ def particle_extract(grid_sampling: int, cmm: bool, input_dir=None):
                 total_star_df = pd.concat([total_star_df, tomogram_star_df], ignore_index=True)
                 # --- Write out .cmm files
                 if cmm == True:
-                    utils.cmm_write(data = tomogram_star_df, tomogram_name=tomo_name, output_directory=output_directory, sampling=grid_sampling)
+                    utils.cmm_write(data = tomogram_star_df, tomogram_name=tomo_name, output_directory=output_directory, sampling=sample_rate)
                 #When we finish one tomogram, update progress bar
                 pbar.update(1)
         except Exception as e:
             raise(e)
     # Write out a starfile with all objects and particles across all tomograms processed
     starfile.write(total_star_df, os.path.join(output_directory, 'particles.star'))
-    print(f'All article data has been written to star files in {output_directory}!')
+    print(f'All particle data has been written to star files in {output_directory}!')
 
     # --- Print out the total number of particles sampled across all tomograms and objects
     particle_overview = dict(total_star_df['rlnMicrographName'].value_counts()) #counts how many particles retrieved in each micrograph
