@@ -1,3 +1,4 @@
+from pathlib import PosixPath
 from ..config import mgraph_suffix
 
 def get_mgraph(segmentation_file_path):
@@ -11,7 +12,11 @@ def get_mgraph(segmentation_file_path):
     :rtype: str
     '''
 
-    path_parts = segmentation_file_path.split('/')
+    if isinstance(segmentation_file_path, PosixPath):
+        file_path_string = str(segmentation_file_path)
+        path_parts = file_path_string.split('/')
+    else:
+        path_parts = segmentation_file_path.split('/')
     segmentation_file = path_parts[-1]
     mgraph_parts = segmentation_file.split('_')
     mgraph_Name = mgraph_parts[0]+'_'+mgraph_parts[1]+mgraph_suffix
