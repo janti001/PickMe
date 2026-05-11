@@ -14,6 +14,7 @@ import os
 import sys
 import math as m
 from pathlib import Path
+import re
 
 from PickMe import sampling, utils, filter, plotting, angles
 from .config import mgraph_suffix, star_suffix
@@ -50,6 +51,7 @@ def extract_and_store(input_dir: str, output_dir=None):
         for file in files:
             try:
                 mgraph = utils.get_mgraph(file)
+                print(mgraph)
                 with mrcfile.open(file, mode='r') as mrc:
                     segmentation = mrc.data.copy()
                     pix_size = mrc.voxel_size.x
@@ -426,6 +428,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None):
                 # Obtain objects from segmentations
                 objects_dict, _ = utils.object_extraction(mrc_data)
                 tomo_name = utils.get_mgraph(file, caller='particle_extract') #this is .tomostar file
+                print(f'This is the tomo name: {tomo_name}')
 
                 for object in objects_dict.values():
                     object_array = np.zeros(shape=shape_zyx, dtype=np.int8)
@@ -473,5 +476,77 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None):
 
         
 
-def decompress(input_dir):
-    pass
+def decompress(input_dir=None, job_number=None):
+    '''
+    In this package, we write out all the segmentations in a compressed mrc format. 
+    Users may want to view these files in Chimera/ChimeraX therefore these files must be decompressed prior to use.
+
+    Users can call this command to decompress any selected tomogram from any part of the pipeline - not stricly in a linear fashion.
+
+    :param input_dir: directory containing the desired mrc.gz or mrc.bz2
+    :param job: Alternatively users can supply a job number if the file is from PickMe pipeline. Must be the exact string - 001 not 1
+    :type input_dir: str, pathlike
+    
+    :return: None
+    '''
+    if input_dir is None and job_number is None:
+        raise RuntimeError('A directory or Job number must be provided for this job')
+    
+    output_directory = utils.check_make_dir(job_name='decompress')
+
+    #create file list if user provides job
+    if isinstance(job_number, str) and job_number is not None:
+        path_to_outputs = Path(__file__).resolve().parents[2] / 'outputs'
+        files = list(path_to_outputs.glob(f'**/job{job_number}/*.mrc*'))
+        files = [str(f) for f in files]
+    elif job_number is None:
+        files = glob.glob(os.path.join(input_dir, '*.mrc*'))
+    
+    print(f'These are your files: {files}')
+    #we have list of all files, but perhas user wants to only decompress a select few:
+    ask = input('Are there any specific tomograms you want to decompress? (y/n)')
+
+    while ask not in ['y', 'n']:
+        print('Must be yes or no!')
+        ask = input('Are there any specific tomograms you want to decompress? (y/n)')
+    if ask == 'y':
+        available_to_choose = [f'TS_{re.findall(r'\d+', file.split('/')[-1])}' for file in files]
+        print(f'Available tomograms to choose:\n{available_to_choose}')
+        choices = re.findall(r'\d+', input('Please list the tomograms you want to decompress. You only need to provide the number ID (i.e., TS_XXYY)/\n\nChoices:'))
+        
+        print(f'These are your choices {choices}')
+
+        print('Decompressing your files for you now')
+
+        for file in files:
+            #get mgraph name
+            mgraph = utils.get_mgraph(segmentation_file_path=file, caller='decompress')
+            print(mgraph,type(mgraph ))
+            out_path = os.path.join(output_directory, f'TS_{mgraph}_decompressed.mrc')
+            #open up file and copy data
+            if mgraph in choices:
+                with mrcfile.open(file, mode='r') as mrc:
+                    data = mrc.data.copy()
+                    pix_size = mrc.voxel_size.x
+                with mrcfile.new(out_path, overwrite=True) as newmrc:
+                    newmrc.set_data(data)
+                    newmrc.voxel_size = pix_size
+            else:
+                pass
+        print(f'Decompresson complete!\nFiles written out to {output_directory}')
+    else:
+        print(f'Decompressing your files now...')
+        for file in files:
+            #get mgraph name
+            mgraph = utils.get_mgraph(segmentation_file_path=file, caller='decompress')
+            out_path = os.path.join(output_directory, f'TS_{mgraph}_decompressed.mrc')
+            #open up file and copy data
+            with mrcfile.open(file, mode='r') as mrc:
+                data = mrc.data.copy()
+                pix_size = mrc.voxel_size.x
+            with mrcfile.new(out_path, overwrite=True) as newmrc:
+                newmrc.set_data(data)
+                newmrc.voxel_size = pix_size
+        print(f'Decompresson complete!\nFiles written out to {output_directory}')
+
+    return None

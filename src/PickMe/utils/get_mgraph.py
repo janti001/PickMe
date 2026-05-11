@@ -23,12 +23,18 @@ def get_mgraph(segmentation_file_path, caller=None):
     segmentation_file = path_parts[-1]
 
     #check if it is from object choice job
-    if "chosen" in segmentation_file:
-        mgraph_name = segmentation_file.strip('.mrc.gz')
     if caller == 'particle_extract':
+        #/Users/jantinoro/Documents/LIDo/Rotation_2/python_projects/PickMe/outputs/choose/job005/1007_filtered_chosen.mrc.gz
         mgraph_parts = segmentation_file.split('_')
+        print(f'Mgraph parts: {mgraph_parts}')
+        print(f'{mgraph_parts[0]}')
         mgraph_name = f'TS_{mgraph_parts[0]}{mgraph_suffix}'
-    if caller == 'decompress':
+
+    elif caller == 'decompress':
         mgraph_name = re.findall(r'\d+', segmentation_file)[0]
+    else:
+        mgraph_parts = segmentation_file.split('_')
+        mgraph_name = f'TS_{mgraph_parts[1]}{mgraph_suffix}'
+
 
     return mgraph_name
