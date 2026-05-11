@@ -1,4 +1,5 @@
 from pathlib import PosixPath
+import re
 from ..config import mgraph_suffix
 
 def get_mgraph(segmentation_file_path, caller=None):
@@ -27,4 +28,8 @@ def get_mgraph(segmentation_file_path, caller=None):
     if caller == 'particle_extract':
         mgraph_parts = segmentation_file.split('_')
         mgraph_name = f'TS_{mgraph_parts[0]}{mgraph_suffix}'
+    if caller == 'decompress':
+        mgraph_parts = segmentation_file.split('_')
+        mgraph_name = re.findall(r'\d+', mgraph_parts[-1])
+
     return mgraph_name
