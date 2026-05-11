@@ -26,5 +26,5 @@ def get_mgraph(segmentation_file_path, caller=None):
         mgraph_name = segmentation_file.strip('.mrc.gz')
     if caller == 'particle_extract':
         mgraph_parts = segmentation_file.split('_')
-        mgraph_name = mgraph_parts[0]+'_'+mgraph_parts[1]+mgraph_suffix
+        mgraph_name = f'TS_{mgraph_parts[0]}{mgraph_suffix}'
     return mgraph_name
