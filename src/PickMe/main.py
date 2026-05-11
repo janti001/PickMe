@@ -423,8 +423,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None):
                     pixel_size = mrc.voxel_size.x
                 # Obtain objects from segmentations
                 objects_dict, _ = utils.object_extraction(mrc_data)
-                tomo_name = utils.get_mgraph(file) #this is .tomostar file
-                print(tomo_name)
+                tomo_name = utils.get_mgraph(file, caller='particle_extract') #this is .tomostar file
 
                 for object in objects_dict.values():
                     object_array = np.zeros(shape=shape_zyx, dtype=np.int8)
