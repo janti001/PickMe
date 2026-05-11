@@ -30,6 +30,7 @@ def euler_star(centre_of_mass, particles, label, micrograph, **details):
     
     centz, centy, centx = centre_of_mass[0], centre_of_mass[1], centre_of_mass[2]
 
+    #micrograph coming in is: XXYY_filtered_chosen -we need to get it to TS_XXYY.tomostar
     #loop through particles
 
     for particle in particles.values():
@@ -45,7 +46,7 @@ def euler_star(centre_of_mass, particles, label, micrograph, **details):
         # --- Calculate dot product to get just outer leaflet
         if dot(n, d) > 0:
             #instantiate random number generator
-            rng = default_rng(seed=SEED)
+            rng = default_rng()
             #Getting each normal component
             nz, ny, nx = n[0], n[1], n[2]
             
