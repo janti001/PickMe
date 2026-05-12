@@ -1,4 +1,4 @@
-# PickMe 🎯
+# PickMe-EM 🎯
 ![alt text](https://github.com/janti001/PickMe/blob/main/assets/PickMe_logo.png)
 
 <div>
