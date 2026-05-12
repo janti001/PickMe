@@ -1,7 +1,5 @@
 import argparse
 
-from PickMe.main import particle_extract, extract_and_store, decompress, choose_object
-
 
 
 # --- Building CLI parser
@@ -91,21 +89,29 @@ def main():
     #impotant to note - in subcommand options turns to _
     # e.g,. --input-dir = input_dir
     if args.job == 'extract_objects':
+        from PickMe.main import extract_and_store
+
         extract_and_store(input_dir=args.input_dir,
                           filter_choice=args.filter,
                           output_dir=args.output_dir)
     if args.job == 'choose_objects':
+        from PickMe.main import choose_object
+
         choose_object(input_dir=args.input_dir,
                       segmentation_dir=args.segmentation_dir,
                       input_job=args.input_job,
                       output_dir=args.output_dir)
     if args.job == 'particle_extraction':
+        from PickMe.main import particle_extract
+
         particle_extract(sample_rate=args.sample_rate,
                          cmm=args.cmm,
                          input_dir=args.input_dir,
                          input_job=args.input_job,
                          output_dir=args.output_dir)
     if args.job == 'decompress':
+        from PickMe.main import decompress
+
         decompress(input_dir=args.input_dir,
                    input_job=args.input_job,
                    output_dir=args.output_dir)

@@ -16,9 +16,8 @@ import math as m
 from pathlib import Path
 import re
 
-from PickMe import sampling, utils, filter, plotting, angles
+from . import sampling, utils, filter, plotting, angles
 from .config import mgraph_suffix, star_suffix
-from src.PickMe import utils, sampling
 
 # --- Setting up parameters and data structures ---
 
