@@ -109,6 +109,7 @@ PickMe [option] -h
 ```
 This will show the arguments and options you have - this is still 
 
+<div>
 ### Extract and filter objects
 First we need to filter the segmentations to get any suspsected noise that has been segmented.
 ```
@@ -117,21 +118,44 @@ PickMe extract_objects \
 ```
 Here PickMe will write compressed mrc.gz and mrc.bz2 containing objects that have passed the filter and some diagnostic plots showing how the filter has been calculated.
 
+<div>
+
 ### Choose objects
 Second, you are able to visually choose objects using a wrapper that we have built for napari.
 ```
 PickMe choose_objects \
 --input-dir path/to/tomogram/reconstruction/.mrc/files
 ```
+
 PickMe will find the latest extract job that has been run and use these segmentations.
 
-Optionally, users can input their own segmentations, or perhaps from another job
+When you run this job, a napari window will open with a RegionProps table on the right hand side.
+
+Here you will see the tomogram and segmentaiton layers displayed in the napari console. Here you can show and unshow any pairs of tomograms and segmentations you please - selections of objects for a specific tomogram will only be applied once you have the segmentation highlighted in blue.
+
+Once you have a tomogram/segmentation pair open, on the top right, from each drop down, click the respective names of the segmentation and tomogram layers you wish RegionProps to see.
+
+In the right hand feature table, click labels and then "analyse", a feature table with the object labels will pop up at the bottom and some output in the command line should be printed to verify that PickMe can see the label table.
+
+Click 'view when selected' option in the segmentation layer option in napari, and scroll through each object by clicking the object label in the label table displayed.
+
+To select objects, simply **hold cmd/ctrl + Left-mouse click** on the object and it should be highlighted. This should be followed by dialogue in the command line which shows that the selection has been registered. Multiple objects can also be selected by **hold cmd/ctrl + left-mouse click** over multiple objects.
+
+When you are ready to select objects from another tomogram/segmentatino pair, simpy select the segmentation layer of interest until it is highlighted blue and hide and unhide the appropriate layers and perform the same workflow as above.
+
+
+When selections are completed, simply click off the napari window, and selections will be registered by PickMe and be written out as a mrc.gz / mrc.bz2 in ./outputs/choose_objects/jobxxx/
+
+
+Optionally, users can input their own segmentations, or perhaps from another job and perform the workflow as above.
 ```
 PickMe
 - -input-dir path/to/tomogram/reconstruction/.mrc/files
 --segmentation-dir path/to/segmentations
 --input-job 23
 ```
+
+<div>
 
 ### Particle extraction
 Now we can extract particles from the surface of the objects that we have filtered and selected. This will create particles picked at the outersurface of these objects, calculate euler angles to orient the particles normal to the membrane and write all of the particles into a star file - both across all tomograms processed (particles.star) or a per tomogram particle star file (TS_xyxy_particles.star).
