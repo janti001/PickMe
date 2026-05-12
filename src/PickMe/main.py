@@ -18,6 +18,7 @@ import re
 
 from PickMe import sampling, utils, filter, plotting, angles
 from .config import mgraph_suffix, star_suffix
+from src.PickMe import utils, sampling
 
 # --- Setting up parameters and data structures ---
 
@@ -27,7 +28,7 @@ full_data_dict = {} #dictionary associating tomogram, with objects, and the obje
 # This file will contain the pipeline
 #Each function will be called by a subcommand in the CLI
 
-
+#this function just ensures that if job number of 1 is provided, 001 is parsed
 def _format_job_number(job_number):
     return f'{int(job_number):03d}'
 
