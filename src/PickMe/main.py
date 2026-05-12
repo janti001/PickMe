@@ -32,7 +32,7 @@ def _format_job_number(job_number):
     return f'{int(job_number):03d}'
 
 # --- Object extraction and filtering ---
-def extract_and_store(input_dir: str, filter_choice, output_dir=None):
+def extract_and_store(input_dir: str, filter_choice=None, output_dir=None):
     '''
     Takes a list of tomogram segmentations, identifies all the objects, filter objects by NSR and provides a filtered object dataset, per tomogram.
     
