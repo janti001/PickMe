@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name="PickMe-EM"
-version="0.1.0"
+version="0.1.1"
 authors=[{name="Joe Antinoro", email="ucbtj22@ucl.ac.uk"}]
 description="A tool to be incorporated into membrane segmentation and particle picking pipelines."
 readme="README.md"
