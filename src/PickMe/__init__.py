@@ -23,7 +23,7 @@ _PIPELINE_FUNCTIONS = {
 
 if TYPE_CHECKING:
     from . import angles, filter, plotting, sampling, utils
-    from .main import choose_object, decompress, extract_and_store, particle_extract
+    from .main import choose_object, decompress, extract_and_store, particle_extract #can just write this line and it would be fine
 
 
 def __getattr__(name):
