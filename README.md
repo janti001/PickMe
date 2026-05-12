@@ -24,6 +24,7 @@ This is intended as a CLI tool use, however, there are some useful functions whi
 <div>
 
 # Installation Instructions
+[**Link to PyPi**](https://pypi.org/project/PickMe-EM/)
 
 ## Environment
 - OS-independent
