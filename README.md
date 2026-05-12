@@ -72,7 +72,12 @@ pip install -e .
 The "-e" will install an editable version, which is important as this project is being updated. So the code will update as and when you pull from the repo
 
 ## Via PIP
-
+#### Make directory for project
+```
+mkdir PickMe
+cd PickMe
+```
+#### Create Conda environment and Pip install
 ```
 conda create env -n PickMe python=3.14
 conda activate PickMe
@@ -81,7 +86,80 @@ pip install PickMe
 <div>
 
 # Usage
-Will be added soon. To-be-updated
+## Output handling
+PickMe handles outputs by setting the default output root to ./outputs. Therefore, an output directory is made from wherever you run PickMe.
+
+Ideally, you create a pickme project directory [Installation instructions](https://github.com/janti001/PickMe#make-directory-for-the-project) and run all the jobs you need to from within this directory to keep PickMe-related outputs organised.
+
+## Pipeline
+Collect tilt-series -> pre-process tilt-series -> get tomogram reconstructions -> run your favourite segmentation software -> **PickMe -> Your favourite downstream particle processing pipeline (Warp/M/Relion, dynamo, imod etc.)
+
+PickMe is supposed to be a highly modular tool which can be used in conjunction with other tools at yur disposal. For example: you can have a segmentation from Membrain-seg, filter or pick certain membranes using PickMe and then feed these data back to Membrain-seg to re-train.
+
+Another example: PickMe can take a segmentation file, and oversample the membrane to geenrate particle picks with euler angles calculated, and this can be fed into the Warp/M/Relion pipeline.
+
+-> This is where the power of PickMe comes from, being used in conjunction with other tools.
+
+**Here we will assume you have segmentations that you want to take through the entire PickMe pipeline**:
+At any point:
+```
+PickMe -h
+
+PickMe [option] -h 
+```
+This will show the arguments and options you have - this is still 
+
+### Extract and filter objects
+First we need to filter the segmentations to get any suspsected noise that has been segmented.
+```
+PickMe extract_objects \
+--input-dir path/to/directory/containing/segmentations
+```
+Here PickMe will write compressed mrc.gz and mrc.bz2 containing objects that have passed the filter and some diagnostic plots showing how the filter has been calculated.
+
+### Choose objects
+Second, you are able to visually choose objects using a wrapper that we have built for napari.
+```
+PickMe choose_objects \
+--input-dir path/to/tomogram/reconstruction/.mrc/files
+```
+PickMe will find the latest extract job that has been run and use these segmentations.
+
+Optionally, users can input their own segmentations, or perhaps from another job
+```
+PickMe
+- -input-dir path/to/tomogram/reconstruction/.mrc/files
+--segmentation-dir path/to/segmentations
+--input-job 23
+```
+
+### Particle extraction
+Now we can extract particles from the surface of the objects that we have filtered and selected. This will create particles picked at the outersurface of these objects, calculate euler angles to orient the particles normal to the membrane and write all of the particles into a star file - both across all tomograms processed (particles.star) or a per tomogram particle star file (TS_xyxy_particles.star).
+
+```
+PickMe particle_extract \
+--sample-rate 5
+--cmm
+
+```
+
+Optionally, users can input a segmetation file(s) they would like to use, or a certain job number - as for a choose_objects job.
+
+
+
+
+# Potential new features coming
+**Different filter algorithms/types
+- Implement an otsu-threshold based filter on log-transformed volumes
+- ML/DL classifier using a feature set of the objects
+
+**Particle coordinate manipulation
+- Adding particle coordinate offset so TM proteins can be picked
+
+**Alternate file type outputs for particle coordinates
+- Potentially writing wrappers which can handle the conversion of star files to file types that other software use such as .motl
+
+
 
 
 
