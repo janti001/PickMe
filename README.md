@@ -101,7 +101,6 @@ Another example: PickMe can take a segmentation file, and oversample the membran
 -> This is where the power of PickMe comes from, being used in conjunction with other tools.
 
 **Here we will assume you have segmentations that you want to take through the entire PickMe pipeline**:
-At any point:
 ```
 PickMe -h
 
