@@ -28,7 +28,7 @@ full_data_dict = {} #dictionary associating tomogram, with objects, and the obje
 #Each function will be called by a subcommand in the CLI
 
 # --- Object extraction and filtering ---
-def extract_and_store(input_dir: str, filter, output_dir=None):
+def extract_and_store(input_dir: str, filter_choice, output_dir=None):
     '''
     Takes a list of tomogram segmentations, identifies all the objects, filter objects by NSR and provides a filtered object dataset, per tomogram.
     
@@ -51,7 +51,6 @@ def extract_and_store(input_dir: str, filter, output_dir=None):
         for file in files:
             try:
                 mgraph = utils.get_mgraph(file)
-                print(mgraph)
                 with mrcfile.open(file, mode='r') as mrc:
                     segmentation = mrc.data.copy()
                     pix_size = mrc.voxel_size.x
@@ -135,7 +134,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
     #getting directories sorted so we can dispatch outputs
     output_directory = utils.check_make_dir(directory=output_dir, job_name='choose')
     tomogram_list = glob.glob(f'{input_dir}/TS_*')
-    if segmentation_dir is None:
+    if segmentation_dir is None and input_job is None:
         outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
         extract_jobs = sorted(
             [job for job in (outputs_root / 'filter').glob('job[0-9][0-9][0-9]') if job.is_dir()]
@@ -146,6 +145,11 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
             filtered_seg_list = glob.glob(str(outputs_root / 'filter' / '*filtered*'))
     else:
         filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc*') #This o
+    if segmentation_dir is None and isinstance(input_job, (str, int)) and input_job is not None:
+        input_job=str(input_job)
+        path_to_outputs = Path(__file__).resolve().parents[2] / 'outputs'
+        filtered_seg_list = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
+        filtered_seg_list = [str(f) for f in filtered_seg_list]
     
     #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
     data_dict={} #this could be changed to a class
@@ -310,9 +314,8 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         print('Writing new objects to disk now as mrc.gz files')
         with tqdm(total=len(final_data), desc='Writing', unit='Tomogram', leave=True) as pbar:
             for tomo_id, selected_objects in final_data.items():
-                print(tomo_id)
                 tomogram_path = data_dict.get(tomo_id)['tomogram']
-                print(f'tomogram path {tomogram_path}')
+                #print(f'tomogram path {tomogram_path}')
                 pbar.set_postfix_str(f'Processing tomogram: {tomo_id}...')
                 if tomogram_path is None:
                     print(f'Warning: no matching tomogram found for {tomo_id}')
@@ -335,14 +338,14 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
                     new_file.set_data(choice_array)
                     new_file.voxel_size = pix_size
                 pbar.update(1)
-        print(f'All object data has been written to gzipped mrc files in {output_directory}!')
+        print(f'\n\nAll object data has been written to gzipped mrc files in {output_directory}!')
         return None
     else:
         #we just re write out the files?
         #create a symlink?
         #copy the files?
 
-        print(f'The files have remained unchanged and are located in outputs/extract/{extract_jobs[-1]}')
+        print(f'\n\nThe files have remained unchanged and are located in outputs/extract/{extract_jobs[-1]}')
         return None
 
 
@@ -416,7 +419,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
         files = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
         files = [str(f) for f in files]
 
-    cmm_ask = input('Do you want to ouptut the particle coordinates and normals into a .cmm file?')
+    #cmm_ask = input('Do you want to ouptut the particle coordinates and normals into a .cmm file?')
     print(f'Processing {len(files)} files now....\n')
 
     # --- Begin processing
@@ -433,7 +436,6 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
                 # Obtain objects from segmentations
                 objects_dict, _ = utils.object_extraction(mrc_data)
                 tomo_name = utils.get_mgraph(file, caller='particle_extract') #this is .tomostar file
-                print(f'This is the tomo name: {tomo_name}')
 
                 for object in objects_dict.values():
                     object_array = np.zeros(shape=shape_zyx, dtype=np.int8)
@@ -468,7 +470,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
             raise(e)
     # Write out a starfile with all objects and particles across all tomograms processed
     starfile.write(total_star_df, os.path.join(output_directory, 'particles.star'))
-    print(f'All particle data has been written to star files in {output_directory}!')
+    print(f'\nAll particle data has been written to star files in {output_directory}!')
 
     # --- Print out the total number of particles sampled across all tomograms and objects
     particle_overview = dict(total_star_df['rlnMicrographName'].value_counts()) #counts how many particles retrieved in each micrograph

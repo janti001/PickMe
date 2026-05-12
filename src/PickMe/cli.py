@@ -1,12 +1,100 @@
 import argparse
 
+from PickMe.main import particle_extract, extract_and_store, decompress, choose_object
 
 
 
+# --- Building CLI parser
+def build_parser():
+    parser = argparse.ArgumentParser(prog='PickMe',
+                                     description='CryoEM segmentation handling programme',
+                                     usage='PickMe [options]')
+    
+    subparser = parser.add_subparsers(dest='job', required=True)
 
-# --- Building CLI structure
-
-
-
+    # --------------------------------
+    # Subcommand 1: Object extraction
+    # --------------------------------
+    object_extract_parser = subparser.add_parser('extract_objects',
+                                                 help='Identifies objects in a segmentaion and extracts and filters them')
+    
+    object_extract_parser.add_argument('--input-dir', required=True,
+                                       type=str,
+                                       help='Directory, pathlike, containing segmentation files of interest')
+    
+    object_extract_parser.add_argument('--output-dir', required=False,
+                                       type=str,
+                                       help='If users wish to have the output in a particular place, provide the path here.')
+    
+    object_extract_parser.add_argument('--filter', required=False,
+                                       type=str,
+                                       help='Choose method for filtering objects. Default: Max-Volume normalisation')
+    
+    # --------------------------------
+    # Subcommand 2: Choosing objects
+    # --------------------------------
+    choice_parser = subparser.add_parser('choose_objects', 
+                                         help='Choose objects within a segmentation of choice - uses Napari')
+    choice_parser.add_argument('--input-dir', required=True,
+                               type = str,
+                               help = 'Directory contaning the reconstructed tomograms')
+    choice_parser.add_argument('--segmentation-dir', required=False,
+                               type = str,
+                               help = 'If users have a segmentation that they want to pick specific objects, they can supply the directory of these. Here, we assume that the segmetation files are in mrc format.')
+    choice_parser.add_argument('--output-dir', required=False,
+                               type=str,
+                               help='Users can select a desired directory to output this job - NOT RECOMMENDED')
+    
+    # --------------------------------
+    # Subcommand 3: Particle extraction
+    # --------------------------------
+    particle_extract_parser = subparser.add_parser('particle_extraction',
+                                                   help='Take a set of segmentation objects and extract particles from the surface at a set pixel distance. Computing euler angles and generating STAR files')
+    particle_extract_parser.add_argument('--input-dir', required=False,
+                                         type=str,
+                                         help='Supply directory path containing segmentations files you wish to sample. If Not provided, latest job from choose job will be used')
+    particle_extract_parser.add_argument('--input-job', required=False,
+                                         type = int,
+                                         help='Users can supply a particular job number if they do not want to use latest from a Choose job. ENSURE to provide the three digit identifier i.e., 001')
+    particle_extract_parser.add_argument('--sample-rate', required=True,
+                                         type = int,
+                                         help='The sampling rate in pixels')
+    particle_extract_parser.add_argument('--cmm', required=False,
+                                         action='store_true',
+                                         help='Enable writing of particle coordinates to a .cmm file')
+    # --------------------------------
+    # subcommand 4: Decmpression
+    # --------------------------------
+    decompress_parser = subparser.add_parser('decompress',
+                                             help='Decompress mrc.gz or mrc.bz2 files into mrc - useful if you wish to view in Chimera')
+    decompress_parser.add_argument('--input-dir', required = False,
+                                   type=str,
+                                   help='Directory containing the desired mrc.gz r mrc.bz2')
+    decompress_parser.add_argument('--input-job', required = False,
+                                   type = int,
+                                   help='Can supply a job number from the PickMe pipeline')
+    return parser
 
 # --- Dispatching logic to functions
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    #impotant to note - in subcommand options turns to _
+    # e.g,. --input-dir = input_dir
+    if args.job == 'extract_objects':
+        extract_and_store(input_dir=args.input_dir,
+                          filter_choice=args.filter,
+                          output_dir=args.output_dir)
+    if args.job == 'choose_objects':
+        choose_object(input_dir=args.input_dir,
+                      segmentation_dir=args.segmentation_dir,
+                      output_dir=args.output_dir)
+    if args.job == 'particle_extraction':
+        particle_extract(sample_rate=args.sample_rate,
+                         cmm=args.cmm,
+                         input_dir=args.input_dir,
+                         input_job=args.input_job)
+    if args.job == 'decompress':
+        decompress(input_dir=args.input_dir,
+                   input_job=args.input_job)
+    return None
