@@ -1,1 +1,0 @@
-from .euler_star import euler_star
