@@ -20,7 +20,13 @@ dependencies=[
 	'seaborn',
 	'plotly',
 	'tqdm',
-	'scipy'
+	'scipy',
+	'pyqt5',
+	'pyqt5-qt5',
+	'pyqt5-sip',
+	'pyqt6',
+	'pyqt6-qt6',
+	'pyqt6-sip'
 	]
 
 classifiers = [
