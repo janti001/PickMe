@@ -44,9 +44,6 @@ def build_parser():
     choice_parser.add_argument('--output-dir', required=False,
                                type=str,
                                help='Users can select a desired directory to output this job - NOT RECOMMENDED')
-    choice_parser.add_argument('--input-job', required=False,
-                               type=int,
-                               help='Use a specific filter job number as input. For example, 1 selects job001.')
     
     # --------------------------------
     # Subcommand 3: Particle extraction
@@ -59,9 +56,6 @@ def build_parser():
     particle_extract_parser.add_argument('--input-job', required=False,
                                          type = int,
                                          help='Users can supply a particular job number if they do not want to use latest from a Choose job. ENSURE to provide the three digit identifier i.e., 001')
-    particle_extract_parser.add_argument('--output-dir', required=False,
-                                         type=str,
-                                         help='Pipeline output root. Defaults to ./outputs in the directory where PickMe is run.')
     particle_extract_parser.add_argument('--sample-rate', required=True,
                                          type = int,
                                          help='The sampling rate in pixels')
@@ -79,9 +73,6 @@ def build_parser():
     decompress_parser.add_argument('--input-job', required = False,
                                    type = int,
                                    help='Can supply a job number from the PickMe pipeline')
-    decompress_parser.add_argument('--output-dir', required=False,
-                                   type=str,
-                                   help='Pipeline output root. Defaults to ./outputs in the directory where PickMe is run.')
     return parser
 
 # --- Dispatching logic to functions
@@ -97,16 +88,13 @@ def main():
     if args.job == 'choose_objects':
         choose_object(input_dir=args.input_dir,
                       segmentation_dir=args.segmentation_dir,
-                      input_job=args.input_job,
                       output_dir=args.output_dir)
     if args.job == 'particle_extraction':
         particle_extract(sample_rate=args.sample_rate,
                          cmm=args.cmm,
                          input_dir=args.input_dir,
-                         input_job=args.input_job,
-                         output_dir=args.output_dir)
+                         input_job=args.input_job)
     if args.job == 'decompress':
         decompress(input_dir=args.input_dir,
-                   input_job=args.input_job,
-                   output_dir=args.output_dir)
+                   input_job=args.input_job)
     return None

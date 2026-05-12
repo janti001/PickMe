@@ -1,13 +1,5 @@
 from pathlib import Path
 
-
-def get_output_root(directory=None):
-    """Return the root directory used for PickMe pipeline outputs."""
-    if directory is None:
-        return Path.cwd() / 'outputs'
-    return Path(directory).expanduser().resolve()
-
-
 def check_make_dir(job_name, directory=None):
     '''
     When this function is called, it will check if there is an output directory for the current pipeline segment. 
@@ -15,8 +7,7 @@ def check_make_dir(job_name, directory=None):
 
     This is done so we can store any results we may want to write into an output directory.
 
-    By default outputs are written under ./outputs from the directory where PickMe is run.
-    If directory is provided, it is treated as the pipeline output root.
+    This function, for now, assumes a certain file structure - as determined by the project structure - we use relative paths to coordinate this.
 
     :param directory: Path of the directory for which we want to check.
     :param job_name: name of the type of job that is being run
@@ -26,14 +17,15 @@ def check_make_dir(job_name, directory=None):
     :return output_directory: file path of the output directory that was made
     '''
     
-    output_root = get_output_root(directory)
-    output_root.mkdir(parents=True, exist_ok=True)
+    output_root = Path(__file__).resolve().parents[3] / 'outputs'
+    output_root.mkdir(exist_ok=True)
 
-    job_root = output_root / job_name
-    job_root.mkdir(parents=True, exist_ok=True)
+    directory = directory if directory is not None else job_name
+    job_root = output_root / directory
+    job_root.mkdir(exist_ok=True)
 
     job_numbers = []
-    for path in job_root.glob('job[0-9][0-9][0-9]'):
+    for path in output_root.glob('*/job[0-9][0-9][0-9]'):
         if path.is_dir():
             try:
                 job_numbers.append(int(path.name.removeprefix('job')))

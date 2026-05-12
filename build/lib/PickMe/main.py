@@ -27,10 +27,6 @@ full_data_dict = {} #dictionary associating tomogram, with objects, and the obje
 # This file will contain the pipeline
 #Each function will be called by a subcommand in the CLI
 
-
-def _format_job_number(job_number):
-    return f'{int(job_number):03d}'
-
 # --- Object extraction and filtering ---
 def extract_and_store(input_dir: str, filter_choice, output_dir=None):
     '''
@@ -138,8 +134,8 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
     #getting directories sorted so we can dispatch outputs
     output_directory = utils.check_make_dir(directory=output_dir, job_name='choose')
     tomogram_list = glob.glob(f'{input_dir}/TS_*')
-    outputs_root = utils.get_output_root(output_dir)
     if segmentation_dir is None and input_job is None:
+        outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
         extract_jobs = sorted(
             [job for job in (outputs_root / 'filter').glob('job[0-9][0-9][0-9]') if job.is_dir()]
         )
@@ -147,13 +143,13 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
             filtered_seg_list = glob.glob(str(extract_jobs[-1] / '*filtered*'))
         else:
             filtered_seg_list = glob.glob(str(outputs_root / 'filter' / '*filtered*'))
-    elif segmentation_dir is None and isinstance(input_job, (str, int)):
-        input_job = _format_job_number(input_job)
-        path_to_outputs = outputs_root
-        filtered_seg_list = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
-        filtered_seg_list = [str(f) for f in filtered_seg_list]
     else:
         filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc*') #This o
+    if segmentation_dir is None and isinstance(input_job, (str, int)) and input_job is not None:
+        input_job=str(input_job)
+        path_to_outputs = Path(__file__).resolve().parents[2] / 'outputs'
+        filtered_seg_list = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
+        filtered_seg_list = [str(f) for f in filtered_seg_list]
     
     #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
     data_dict={} #this could be changed to a class
@@ -349,14 +345,14 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         #create a symlink?
         #copy the files?
 
-        print(f'\n\nThe files have remained unchanged and are located in {output_directory}')
+        print(f'\n\nThe files have remained unchanged and are located in outputs/extract/{extract_jobs[-1]}')
         return None
 
 
 
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
-def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None, output_dir=None):
+def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None):
     '''
     This function will take the objects that have been filtered and selected and particle extraction begins.
 
@@ -403,25 +399,25 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
     tomogram_star_df = total_star_df.copy()
 
     #set the output directory
-    output_directory = utils.check_make_dir(job_name='particle_extraction', directory=output_dir)
+    output_directory = utils.check_make_dir(job_name='particle_extraction')
     #check which job number we are on
-    outputs_root = utils.get_output_root(output_dir)
+    outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
     choose_jobs = sorted([job for job in (outputs_root / 'choose').glob("**/job[0-9][0-9][0-9]") if job.is_dir()])
     # ---- Getting files
-    if isinstance(input_job, (str, int)):
-        input_job = _format_job_number(input_job)
-        path_to_outputs = outputs_root
-        files = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
-        files = [str(f) for f in files]
-    elif input_dir is None and choose_jobs: #choose obs has to return something - i.e., the choose job has to be run at least once prior if no input directory is provided
+    if input_dir is None and choose_jobs: #choose obs has to return something - i.e., the choose job has to be run at least once prior if no input directory is provided
         #retrieve the files from the output/choose directory - latest job
         files = list(choose_jobs[-1].glob('*chosen*')) #we use glob method with Posix Path as it is a Path object, not a string
-    elif input_dir is None and not choose_jobs:
+    if input_dir is None and not choose_jobs:
         raise RuntimeError('choose_object job must be run if you are to provide no input directory')
     #possibility of having input dir
-    else:
+    if input_dir is not None:
         print('WARNING: files must be in mrc, mrc.gz, mrc.bz2')
         files = glob.glob(f'{input_dir}/*mrc') + glob.glob(f'{input_dir}/*mrc.gz') + glob.glob(f'{input_dir}/*mrc.bz2')
+    if isinstance(input_job, (str, int)) and input_job is not None:
+        input_job=str(input_job)
+        path_to_outputs = Path(__file__).resolve().parents[2] / 'outputs'
+        files = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
+        files = [str(f) for f in files]
 
     #cmm_ask = input('Do you want to ouptut the particle coordinates and normals into a .cmm file?')
     print(f'Processing {len(files)} files now....\n')
@@ -487,7 +483,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
 
         
 
-def decompress(input_dir=None, input_job=None, output_dir=None):
+def decompress(input_dir=None, input_job=None):
     '''
     In this package, we write out all the segmentations in a compressed mrc format. 
     Users may want to view these files in Chimera/ChimeraX therefore these files must be decompressed prior to use.
@@ -503,12 +499,12 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
     if input_dir is None and input_job is None:
         raise RuntimeError('A directory or Job number must be provided for this job')
     
-    output_directory = utils.check_make_dir(job_name='decompress', directory=output_dir)
+    output_directory = utils.check_make_dir(job_name='decompress')
 
     #create file list if user provides job
-    if isinstance(input_job, (str, int)) and input_job is not None:
-        input_job = _format_job_number(input_job)
-        path_to_outputs = utils.get_output_root(output_dir)
+    if isinstance(input_job, str) and input_job is not None:
+        input_job = str(input_job)
+        path_to_outputs = Path(__file__).resolve().parents[2] / 'outputs'
         files = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
         files = [str(f) for f in files]
     elif input_job is None:
@@ -522,7 +518,7 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
         print('Must be yes or no!')
         ask = input('Are there any specific tomograms you want to decompress? (y/n)')
     if ask == 'y':
-        available_to_choose = [f"TS_{re.findall(r'\d+', file.split('/')[-1])}" for file in files]
+        available_to_choose = [f'TS_{re.findall(r'\d+', file.split('/')[-1])}' for file in files]
         print(f'Available tomograms to choose:\n{available_to_choose}')
         choices = re.findall(r'\d+', input('Please list the tomograms you want to decompress. You only need to provide the number ID (i.e., TS_XXYY)/\n\nChoices:'))
         
