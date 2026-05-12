@@ -111,6 +111,8 @@ This will show the arguments and options you have - this is still
 
 <div>
 ### Extract and filter objects
+
+  
 First we need to filter the segmentations to get any suspsected noise that has been segmented.
 ```
 PickMe extract_objects \
