@@ -26,8 +26,8 @@ def get_mgraph(segmentation_file_path, caller=None):
     if caller == 'particle_extract':
         #/Users/jantinoro/Documents/LIDo/Rotation_2/python_projects/PickMe/outputs/choose/job005/1007_filtered_chosen.mrc.gz
         mgraph_parts = segmentation_file.split('_')
-        print(f'Mgraph parts: {mgraph_parts}')
-        print(f'{mgraph_parts[0]}')
+        #print(f'Mgraph parts: {mgraph_parts}')
+        #print(f'{mgraph_parts[0]}')
         mgraph_name = f'TS_{mgraph_parts[0]}{mgraph_suffix}'
 
     elif caller == 'decompress':
