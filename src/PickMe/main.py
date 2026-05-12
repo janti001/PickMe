@@ -28,7 +28,7 @@ full_data_dict = {} #dictionary associating tomogram, with objects, and the obje
 #Each function will be called by a subcommand in the CLI
 
 # --- Object extraction and filtering ---
-def extract_and_store(input_dir: str, output_dir=None):
+def extract_and_store(input_dir: str, filter, output_dir=None):
     '''
     Takes a list of tomogram segmentations, identifies all the objects, filter objects by NSR and provides a filtered object dataset, per tomogram.
     
@@ -104,7 +104,7 @@ def extract_and_store(input_dir: str, output_dir=None):
 
 # --- Object choice with Napari plugin --- 
 
-def choose_object(input_dir:str, segmentation_dir = None, output_dir=None, compress=None):
+def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output_dir=None):
     '''
     This function takes a user's choice of tomogram's segmentation files, and can specify the specific objects witin these tomograms in which they wish to keep.
     The user can only choose from objects which have passed the volume-based filter which aims to filter out noise.
@@ -349,7 +349,7 @@ def choose_object(input_dir:str, segmentation_dir = None, output_dir=None, compr
 
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
-def particle_extract(sample_rate: int, cmm: bool, input_dir=None):
+def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None):
     '''
     This function will take the objects that have been filtered and selected and particle extraction begins.
 
@@ -400,7 +400,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None):
     #check which job number we are on
     outputs_root = Path(__file__).resolve().parents[2] / 'outputs'
     choose_jobs = sorted([job for job in (outputs_root / 'choose').glob("**/job[0-9][0-9][0-9]") if job.is_dir()])
-    #if there is no input, we assume the latest job number in choose directory as input
+    # ---- Getting files
     if input_dir is None and choose_jobs: #choose obs has to return something - i.e., the choose job has to be run at least once prior if no input directory is provided
         #retrieve the files from the output/choose directory - latest job
         files = list(choose_jobs[-1].glob('*chosen*')) #we use glob method with Posix Path as it is a Path object, not a string
@@ -410,6 +410,11 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None):
     if input_dir is not None:
         print('WARNING: files must be in mrc, mrc.gz, mrc.bz2')
         files = glob.glob(f'{input_dir}/*mrc') + glob.glob(f'{input_dir}/*mrc.gz') + glob.glob(f'{input_dir}/*mrc.bz2')
+    if isinstance(input_job, (str, int)) and input_job is not None:
+        input_job=str(input_job)
+        path_to_outputs = Path(__file__).resolve().parents[2] / 'outputs'
+        files = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
+        files = [str(f) for f in files]
 
     cmm_ask = input('Do you want to ouptut the particle coordinates and normals into a .cmm file?')
     print(f'Processing {len(files)} files now....\n')
@@ -476,7 +481,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None):
 
         
 
-def decompress(input_dir=None, job_number=None):
+def decompress(input_dir=None, input_job=None):
     '''
     In this package, we write out all the segmentations in a compressed mrc format. 
     Users may want to view these files in Chimera/ChimeraX therefore these files must be decompressed prior to use.
@@ -489,17 +494,18 @@ def decompress(input_dir=None, job_number=None):
     
     :return: None
     '''
-    if input_dir is None and job_number is None:
+    if input_dir is None and input_job is None:
         raise RuntimeError('A directory or Job number must be provided for this job')
     
     output_directory = utils.check_make_dir(job_name='decompress')
 
     #create file list if user provides job
-    if isinstance(job_number, str) and job_number is not None:
+    if isinstance(input_job, str) and input_job is not None:
+        input_job = str(input_job)
         path_to_outputs = Path(__file__).resolve().parents[2] / 'outputs'
-        files = list(path_to_outputs.glob(f'**/job{job_number}/*.mrc*'))
+        files = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
         files = [str(f) for f in files]
-    elif job_number is None:
+    elif input_job is None:
         files = glob.glob(os.path.join(input_dir, '*.mrc*'))
     
     print(f'These are your files: {files}')
