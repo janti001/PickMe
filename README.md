@@ -82,7 +82,7 @@ cd PickMe
 ```
 conda create env -n PickMe python=3.14
 conda activate PickMe
-pip install PickMe
+pip install PickMe-EM
 ```
 <div>
 
