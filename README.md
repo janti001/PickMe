@@ -92,7 +92,7 @@ PickMe handles outputs by setting the default output root to ./outputs. Therefor
 Ideally, you create a pickme project directory [Installation instructions](https://github.com/janti001/PickMe#make-directory-for-the-project) and run all the jobs you need to from within this directory to keep PickMe-related outputs organised.
 
 ## Pipeline
-Collect tilt-series -> pre-process tilt-series -> get tomogram reconstructions -> run your favourite segmentation software -> **PickMe -> Your favourite downstream particle processing pipeline (Warp/M/Relion, dynamo, imod etc.)
+Collect tilt-series -> pre-process tilt-series -> get tomogram reconstructions -> run your favourite segmentation software -> **PickMe** -> Your favourite downstream particle processing pipeline (Warp/M/Relion, dynamo, imod etc.)
 
 PickMe is supposed to be a highly modular tool which can be used in conjunction with other tools at yur disposal. For example: you can have a segmentation from Membrain-seg, filter or pick certain membranes using PickMe and then feed these data back to Membrain-seg to re-train.
 
@@ -149,14 +149,14 @@ Optionally, users can input a segmetation file(s) they would like to use, or a c
 
 
 # Potential new features coming
-**Different filter algorithms/types
+**Different filter algorithms/types**
 - Implement an otsu-threshold based filter on log-transformed volumes
 - ML/DL classifier using a feature set of the objects
 
-**Particle coordinate manipulation
+**Particle coordinate manipulation**
 - Adding particle coordinate offset so TM proteins can be picked
 
-**Alternate file type outputs for particle coordinates
+**Alternate file type outputs for particle coordinates**
 - Potentially writing wrappers which can handle the conversion of star files to file types that other software use such as .motl
 
 
