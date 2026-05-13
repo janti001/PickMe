@@ -1,5 +1,5 @@
 # PickMe-EM 🎯
-![alt text](https://github.com/janti001/PickMe/blob/main/assets/PickMe_logo.png)
+![alt text](https://github.com/janti001/PickMe/blob/main/assets/pickme_logo2.png)
 
 <div>
 A tool to incorporate into membrane segmentation-based workflows. Typical workflows involving membranes involve:
