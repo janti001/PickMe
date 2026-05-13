@@ -1,4 +1,4 @@
-name: cryoEM
+name: pickme
 channels:
   - conda-forge
   - defaults
