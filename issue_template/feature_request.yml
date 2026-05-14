@@ -1,0 +1,53 @@
+name: 💡 Feature Request
+description: Suggest an idea or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Whether it's a new capability, a workflow improvement, or a quality-of-life change — we'd love to hear it.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the context or limitation you're running into. What are you trying to do that is currently difficult or impossible?
+      placeholder: "In my workflow I often need to... but currently there's no way to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the feature you'd like
+      description: What would you want this to look like? Be as specific or as vague as you like — rough ideas are welcome too.
+      placeholder: "It would be great if..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds you've considered
+      description: Have you found any workarounds? Are there other tools that do something similar?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: How important is this to your work?
+      options:
+        - "Nice to have — minor convenience"
+        - "Moderately useful — would use it regularly"
+        - "High impact — currently blocking or significantly limiting my work"
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Any other details — example data, scientific context, references to related tools or papers, etc.
+    validations:
+      required: false

@@ -1,0 +1,59 @@
+name: 🐛 Bug Report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill in as much detail as you can — it helps us reproduce and fix the issue faster.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. What did you expect to happen vs. what actually happened?
+      placeholder: "When I run X, I expected Y but got Z instead..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps or a code snippet that reproduces the problem.
+      placeholder: |
+        1. Load data with ...
+        2. Run function ...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: error_output
+    attributes:
+      label: Error output or unexpected result
+      description: Paste the full error message, traceback, or unexpected output here.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Please fill in your environment details.
+      value: |
+        - OS: [e.g. Ubuntu 22.04, macOS 14, Windows 11]
+        - Python version: [e.g. 3.10.12]
+        - Package version / git commit: [e.g. v0.3.1 or abc1234]
+        - Other relevant packages: [e.g. numpy 1.26, torch 2.2]
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Any other information that might be helpful — dataset type, file formats, relevant config, etc.
+    validations:
+      required: false
