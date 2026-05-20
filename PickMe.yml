@@ -15,8 +15,7 @@ dependencies:
   - ncurses=6.5=h5e97a16_3
   - openssl=3.6.1=hd24854e_1
   - pip=26.0.1=pyh145f28c_0
-  - python=3.14.3=h4c637c5_101_cp314
-  - python_abi=3.14=8_cp314
+  - python=3.12
   - readline=8.3=h46df422_0
   - tk=8.6.13=h010d191_3
   - zstd=1.5.7=hbf9d68e_6

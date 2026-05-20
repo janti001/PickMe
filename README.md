@@ -28,7 +28,7 @@ This is intended as a CLI tool use, however, there are some useful functions whi
 
 ## Environment
 - OS-independent
-- Requires Python >= 3.14
+- Requires Python >= 3.11, <3.14
 
 ## Dependencies
 - numpy (2.4.3)
