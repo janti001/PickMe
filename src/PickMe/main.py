@@ -17,6 +17,7 @@ import re
 from . import sampling, utils, filter, plotting, angles
 from .config import mgraph_suffix, star_suffix
 
+
 # --- Setting up parameters and data structures ---
 
 #will make a particle row dictionary in a for loop within the segmentation mesh - loop over vertices
@@ -135,7 +136,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
     #--- setting up directories and data structures
     #getting directories sorted so we can dispatch outputs
     output_directory = utils.check_make_dir(directory=output_dir, job_name='choose')
-    tomogram_list = glob.glob(f'{input_dir}/TS_*')
+    tomogram_list = glob.glob(f'{input_dir}/*mrc')
     outputs_root = utils.get_output_root(output_dir)
     if segmentation_dir is None and input_job is None:
         extract_jobs = sorted(
