@@ -5,8 +5,6 @@ import mrcfile
 from tqdm import tqdm
 from scipy.ndimage import gaussian_filter, center_of_mass
 import seaborn as sns
-from qtpy.QtWidgets import QAbstractItemView, QTableView, QTableWidget, QPushButton
-import napari
 from skimage.measure import regionprops, marching_cubes
 
 import glob
@@ -165,6 +163,9 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
             data_dict[tomo_id].update({'segmentation': seg for seg in filtered_seg_list if tomo_id in seg})
 
     if ask_user == True:
+        #Imports - remove it from top level as these are only needed if user wants to select specific objects and we want to avoid unnecessary imports if they don't
+        from qtpy.QtWidgets import QAbstractItemView, QTableView, QTableWidget, QPushButton
+        import napari
 
         #instantiate the napari viewer
         viewer = napari.Viewer()
