@@ -7,3 +7,4 @@ outputs/*
 **/tests/
 ./tests/*
 dist/*
+env.yml
