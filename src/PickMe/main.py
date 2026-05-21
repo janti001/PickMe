@@ -100,6 +100,7 @@ def extract_and_store(input_dir: str, filter_choice=None, output_dir=None):
                 mrc.set_data(filtered_array)
                 mrc.voxel_size = pix_size
             pbar.update(1)
+    print(f'\n\nAll filtered segmentations have been written to gzipped mrc files in {output_directory}!')
     #not sure to return full date or not
     return None
 
@@ -465,7 +466,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
                 #Write out angles plots for each tomogram
                 plotting.plot_angles(star_data=tomogram_star_df, output_dir=output_directory, tomogram_name=tomo_name)
                 # --- Write out star files per tomogram
-                starfile.write(tomogram_star_df, f'{output_directory}/{tomo_name}.star')
+                starfile.write(tomogram_star_df, f'{output_directory}/{tomo_name.strip(".tomostar")}.star')
                 total_star_df = pd.concat([total_star_df, tomogram_star_df], ignore_index=True)
                 # --- Write out .cmm files
                 if cmm == True:
