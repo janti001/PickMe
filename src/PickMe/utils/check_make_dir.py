@@ -27,13 +27,14 @@ def check_make_dir(job_name, directory=None):
     '''
     
     output_root = get_output_root(directory)
+    print(f'This is output root: {output_root}')
     output_root.mkdir(parents=True, exist_ok=True)
 
     job_root = output_root / job_name
     job_root.mkdir(parents=True, exist_ok=True)
 
     job_numbers = []
-    for path in job_root.glob('job[0-9][0-9][0-9]'):
+    for path in output_root.glob('**/job[0-9][0-9][0-9]'):
         if path.is_dir():
             try:
                 job_numbers.append(int(path.name.removeprefix('job')))
