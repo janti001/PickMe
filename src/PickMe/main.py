@@ -137,7 +137,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
     #--- setting up directories and data structures
     #getting directories sorted so we can dispatch outputs
     output_directory = utils.check_make_dir(directory=output_dir, job_name='choose')
-    tomogram_list = glob.glob(f'{input_dir}/*mrc')
+    tomogram_list = glob.glob(f'{input_dir}')
     outputs_root = utils.get_output_root(output_dir)
     if segmentation_dir is None and input_job is None:
         extract_jobs = sorted(
@@ -153,7 +153,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         filtered_seg_list = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
         filtered_seg_list = [str(f) for f in filtered_seg_list]
     else:
-        filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc*') #This o
+        filtered_seg_list = glob.glob(f'{segmentation_dir}') #This o
     
     #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
     data_dict={} #this could be changed to a class
@@ -517,7 +517,7 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
     elif input_job is None:
         files = glob.glob(os.path.join(input_dir, '*.mrc*'))
     
-    print(f'These are your files: {files}')
+    print(utils._format_tomogram_choices(files))
     #we have list of all files, but perhas user wants to only decompress a select few:
     ask = input('Are there any specific tomograms you want to decompress? (y/n)')
 
