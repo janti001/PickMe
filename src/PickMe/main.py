@@ -178,7 +178,6 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
                 tomogram_data = f.data.copy()
             with mrcfile.open(data['segmentation'], mode='r') as f:
                 segmentation_data = f.data.copy()
-
             viewer.add_image(tomogram_data, name=tomogram_id)
             viewer.add_labels(segmentation_data, name=f'{tomogram_id}_segmentation')
         
