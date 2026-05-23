@@ -8,3 +8,4 @@ outputs/*
 ./tests/*
 dist/*
 env.yml
+Notebooks/**
