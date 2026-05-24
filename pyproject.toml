@@ -8,7 +8,7 @@ version="0.1.1"
 authors=[{name="Joe Antinoro", email="ucbtj22@ucl.ac.uk"}]
 description="A tool to be incorporated into membrane segmentation and particle picking pipelines."
 readme="README.md"
-requires-python=">=3.11, <3.13"
+requires-python=">=3.12, <3.14"
 dependencies=[
 	'numpy',
 	'pandas',
@@ -16,17 +16,12 @@ dependencies=[
 	'starfile',
 	'mrcfile',
 	'napari',
+	'napari-skimage',
 	'scikit-image',
 	'seaborn',
 	'plotly',
 	'tqdm',
-	'scipy',
-	'pyqt5',
-	'pyqt5-qt5',
-	'pyqt5-sip',
-	'pyqt6',
-	'pyqt6-qt6',
-	'pyqt6-sip'
+	'scipy'
 	]
 
 classifiers = [
