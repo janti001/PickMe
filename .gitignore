@@ -9,3 +9,4 @@ outputs/*
 dist/*
 env.yml
 Notebooks/*
+AGENTS.md
