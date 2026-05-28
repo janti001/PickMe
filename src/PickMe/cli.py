@@ -44,7 +44,10 @@ def build_parser():
                                help='Users can select a desired directory to output this job - NOT RECOMMENDED')
     choice_parser.add_argument('--input-job', required=False,
                                type=int,
-                               help='Use a specific filter job number as input. For example, 1 selects job001.')
+                               help='Use a specific filter job number (with segmentation) as input. For example, 1 selects job001.')
+    choice_parser.add_argument('--write-selections', required = False,
+                               action='store_true',
+                               help='If users want to write selected objects as their own mrc files, in a subdirectory named by the tomogram ID, they can use this flag. By default, they are all written to the same mrc file.')
     
     # --------------------------------
     # Subcommand 3: Particle extraction
@@ -100,7 +103,8 @@ def main():
         choose_object(input_dir=args.input_dir,
                       segmentation_dir=args.segmentation_dir,
                       input_job=args.input_job,
-                      output_dir=args.output_dir)
+                      output_dir=args.output_dir,
+                      write_selections=args.write_selections)
     if args.job == 'particle_extraction':
         from PickMe.main import particle_extract
 
