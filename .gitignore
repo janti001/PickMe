@@ -9,6 +9,7 @@ outputs/*
 dist/*
 env.yml
 Notebooks/*
+*notebook*/*
 AGENTS.md
 CLAUDE.md
 src/PickMe/pickme.code-workspace
