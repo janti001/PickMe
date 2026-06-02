@@ -421,6 +421,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
     
     # --- Data structures
     #instantiate the data structure to be used to write the star file
+    #other entries we could add LCCmax, CutOff, SearchStd, DetectorPixelSize - but these are more relevant for template matching and we don't have this data at this stage, so we will leave them blank for now
     star_dict = {'rlnCoordinateX':[],
                 'rlnCoordinateY':[],
                 'rlnCoordinateZ':[],
@@ -430,10 +431,6 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
                 'rlnAngleRot':[],
                 'rlnAngleTilt':[],
                 'rlnAnglePsi':[],
-                'rlnLCCmax':[],
-                'rlnCutOff':[],
-                'rlnSearchStd':[],
-                'rlnDetectorPixelSize':[],
                 'rlnMicrographName':[]} #This is .tomostar files -> TS_1234.tomostar
 
     total_star_df = pd.DataFrame.from_dict(star_dict)
