@@ -155,7 +155,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         path_to_outputs = outputs_root
         filtered_seg_list = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
         filtered_seg_list = [str(f) for f in filtered_seg_list]
-    else:
+    elif segmentation_dir is not None:
         filtered_seg_list = glob.glob(f'{segmentation_dir}') #This o
     
     #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
