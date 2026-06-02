@@ -596,3 +596,47 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
         print(f'Decompresson complete!\nFiles written out to {output_directory}')
 
     return None
+
+def convert(input, output_dir=None, data_type = None):
+    '''
+    This function will take a tomogram reconstruction and convert the data type to a user-defined data type.
+
+    If no data_type is provided, function defaults to Float32
+
+    :param input: directory or file path to the tomogram(s) to be converted
+    :param output_dir: directory to which the converted files will be written
+    :param data_type: desired data type to convert the tomogram(s) to. Must be a valid numpy data type (i.e., np.float32, np.int16)
+    :type input: str, pathlike
+    :type output_dir: str, pathlike
+    :type data_type: np.dtype
+
+    '''
+    #For now, we default to float32 as this is what I need for the moment
+    
+    # checking if input is a file or directory and creating list of files to convert
+    if os.path.isfile(input):
+        file_list = [input]
+    elif os.path.isdir(input):
+        file_list = glob.glob(os.path.join(input, '*.mrc')) #this assumes that the tomograms are in mrc format - we can change this to be more flexible if needed
+    else:
+        raise RuntimeError('Input must be a file or directory')
+    
+    for file in file_list:
+        #getting the tomogram identifier
+        tomo_file = os.path.basename(file)
+        tomo_file_parts =  tomo_file.split('_')
+        output_file = f'{tomo_file_parts[0]}_{tomo_file_parts[1]}_f32.mrc'
+
+        with mrcfile.open(file, mode='r') as f:
+            data = f.data.copy()
+
+        #convert to float 32
+        data_32 = data.astype(np.float32)
+
+        #write output
+        with mrcfile.new(os.path.join(output_dir, output_file)) as mrc:
+            mrc.set_data(data_32)
+            mrc.voxel_size = 10
+
+
+    return None
