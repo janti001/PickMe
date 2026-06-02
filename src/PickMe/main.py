@@ -382,11 +382,29 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         print(f'\n\nAll object data has been written to gzipped mrc files in {output_directory}!')
         return None
     else:
-        #we just re write out the files?
-        #create a symlink?
-        #copy the files?
-
-        print(f'\n\nThe files have remained unchanged and are located in {output_directory}')
+        #if write_selections is true
+        #go through each segmentation file in the list
+        #get the objects, and write out each object as a separate mrc file in the output directory - this is for the purpose of doing membrane sampling, where we want to sample across each object separately
+        if write_selections == True:
+            for tomo_id, data in data_dict.items():
+                segmentation_path = data_dict.get(tomo_id)['segmentation']
+                with mrcfile.open(segmentation_path, mode='r') as mrc:
+                    segmentation = mrc.data.copy()
+                    shape_zyx = segmentation.shape
+                    pix_size = mrc.voxel_size.x  # avoid re-opening for voxel size
+                objects_dict, _ = utils.object_extraction(segmentation)
+                out_dir = os.path.join(output_directory, f'TS_{tomo_id}_membranes')
+                os.makedirs(out_dir, exist_ok=True)
+                for object in objects_dict.values():
+                    choice_array = np.zeros(shape_zyx, dtype=np.int8)
+                    zcoords, ycoords, xcoords = object.coords[:, 0], object.coords[:, 1], object.coords[:, 2]
+                    choice_array[zcoords, ycoords, xcoords] = 1
+                    out_path = os.path.join(out_dir, f'TS_{tomo_id}_obj{object.label}.mrc') #could change this to mrc.gz -> for the purpsoe of doing membrain, will leave it as mrc - will change to give user an option
+                    with mrcfile.new(out_path, overwrite=True) as new_file:
+                        new_file.set_data(choice_array)
+                        new_file.voxel_size = pix_size
+        else:
+            print(f'\n\nThe files have remained unchanged and are located in {os.path.dirname(filtered_seg_list[0])}!')
         return None
 
 
@@ -617,7 +635,9 @@ def convert(input, output_dir=None, data_type = None):
     if os.path.isfile(input):
         file_list = [input]
     elif os.path.isdir(input):
-        file_list = glob.glob(os.path.join(input, '*.mrc')) #this assumes that the tomograms are in mrc format - we can change this to be more flexible if needed
+        file_list = utils.choose_tomograms(input)
+        file_list = [file for file in file_list if file.endswith('.mrc')] #this assumes that the tomograms are in mrc format - we can change this to be more flexible if needed
+
     else:
         raise RuntimeError('Input must be a file or directory')
     
