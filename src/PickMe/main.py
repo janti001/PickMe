@@ -648,6 +648,7 @@ def convert(input, output_dir=None, data_type = None):
     else:
         raise RuntimeError('Input must be a file or directory')
     
+    print(f'Processing {len(file_list)} files now....\n')
     for file in file_list:
         #getting the tomogram identifier
         tomo_file = os.path.basename(file)
@@ -664,6 +665,7 @@ def convert(input, output_dir=None, data_type = None):
         with mrcfile.new(os.path.join(output_dir, output_file)) as mrc:
             mrc.set_data(data_32)
             mrc.voxel_size = 10
+    print(f'All files have been converted and written to {output_dir}!')
 
 
     return None
