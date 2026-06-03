@@ -83,7 +83,7 @@ def build_parser():
     decompress_parser.add_argument('--output-dir', required=False,
                                    type=str,
                                    help='Pipeline output root. Defaults to ./outputs in the directory where PickMe is run.')
-    return parser
+
 
 
     # --------------------------------
@@ -97,9 +97,10 @@ def build_parser():
     convert_parser.add_argument('--output-dir', required=False,
                                 type=str,
                                 help='Pipeline output root. Defaults to ./outputs in the directory where PickMe is run.')
-    convert_parser.add_argument('--data-type', required = True,
+    convert_parser.add_argument('--data-type', required = False,
                                 type = str,
                                 help = 'The data type you want to convert to. For example, float32 or int16. [DEFAULT: float32]')
+    return parser
     
 
 
