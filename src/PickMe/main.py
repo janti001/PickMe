@@ -648,24 +648,30 @@ def convert(input, output_dir=None, data_type = None):
     else:
         raise RuntimeError('Input must be a file or directory')
     
+    output_directory = utils.check_make_dir(job_name='convert', directory=output_dir)
+    
     print(f'Processing {len(file_list)} files now....\n')
-    for file in file_list:
-        #getting the tomogram identifier
-        tomo_file = os.path.basename(file)
-        tomo_file_parts =  tomo_file.split('_')
-        output_file = f'{tomo_file_parts[0]}_{tomo_file_parts[1]}_f32.mrc'
+    with tqdm(total=len(file_list), desc='Converting files', unit='file', dynamic_ncols=True,
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [Elapsed(s):{elapsed}<>Remaining(s):{remaining}, {rate_fmt}] {postfix}') as pbar:
+        for file in file_list:
+            pbar.set_postfix_str(f'Processing {os.path.basename(file)}...')
+            #getting the tomogram identifier
+            tomo_file = os.path.basename(file)
+            tomo_file_parts =  tomo_file.split('_')
+            output_file = f'{tomo_file_parts[0]}_{tomo_file_parts[1]}_f32.mrc'
 
-        with mrcfile.open(file, mode='r') as f:
-            data = f.data.copy()
+            with mrcfile.open(file, mode='r') as f:
+                data = f.data.copy()
 
-        #convert to float 32
-        data_32 = data.astype(np.float32)
+            #convert to float 32
+            data_32 = data.astype(np.float32)
 
-        #write output
-        with mrcfile.new(os.path.join(output_dir, output_file)) as mrc:
-            mrc.set_data(data_32)
-            mrc.voxel_size = 10
-    print(f'All files have been converted and written to {output_dir}!')
+            #write output
+            with mrcfile.new(os.path.join(output_directory, output_file)) as mrc:
+                mrc.set_data(data_32)
+                mrc.voxel_size = 10
+                pbar.update(1)
+        print(f'All files have been converted and written to {output_directory}!')
 
 
     return None

@@ -8,7 +8,7 @@ def build_parser():
                                      description='CryoEM segmentation handling programme',
                                      usage='PickMe [options]')
     
-    subparser = parser.add_subparsers(dest='job', required=True)
+    subparser = parser.add_subparsers(dest='job', required=True) #dest sets how the subcommand is accessed in the args, required ensures that a subcommand must be provided
 
     # --------------------------------
     # Subcommand 1: Object extraction
@@ -85,6 +85,24 @@ def build_parser():
                                    help='Pipeline output root. Defaults to ./outputs in the directory where PickMe is run.')
     return parser
 
+
+    # --------------------------------
+    # subcommand5: Convert data types
+    # --------------------------------
+    convert_parser = subparser.add_parser('convert',
+                                          help='Convert tomogram data types to a desired type - useful if you have a particular software that requires a specific data type')
+    convert_parser.add_argument('--input-dir', required = True,
+                                type = str,
+                                help = 'Directory containing the tomograms you wish to convert')
+    convert_parser.add_argument('--output-dir', required=False,
+                                type=str,
+                                help='Pipeline output root. Defaults to ./outputs in the directory where PickMe is run.')
+    convert_parser.add_argument('--data-type', required = True,
+                                type = str,
+                                help = 'The data type you want to convert to. For example, float32 or int16. [DEFAULT: float32]')
+    
+
+
 # --- Dispatching logic to functions
 def main():
     parser = build_parser()
@@ -119,4 +137,10 @@ def main():
         decompress(input_dir=args.input_dir,
                    input_job=args.input_job,
                    output_dir=args.output_dir)
+    if args.job == 'convert':
+        from PickMe.main import convert
+        
+        convert(input_dir=args.input_dir,
+                output_dir=args.output_dir,
+                data_type=args.data_type)
     return None
