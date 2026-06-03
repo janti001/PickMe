@@ -22,7 +22,7 @@ def _format_tomogram_choices(files, max_visible=40):
     return '\n'.join(lines)
 
 
-def choose_tomograms(segmentation_directory):
+def choose_tomograms(segmentation_directory, caller=None):
     '''
     Function creates a list of absolute file paths from a given directory. 
 
@@ -36,6 +36,8 @@ def choose_tomograms(segmentation_directory):
     #not sure which one of the two of these to use
     #first one assumes that the segmentation software that users use will leave a segment in the file name
     files = glob.glob(os.path.join(segmentation_directory, '*segment*'))
+    if caller == 'convert':
+        files = glob.glob(os.path.join(segmentation_directory, '*.mrc'))
     ask_user = input(f'Are there specific tomograms you want to process (y/n)?')
     while ask_user.lower() not in ['y', 'yes', 'n', 'no']:
         print('Answer must be yes or no!')
