@@ -642,7 +642,7 @@ def convert(input_dir, output_dir=None, data_type = None):
     if os.path.isfile(input_dir):
         file_list = [input_dir]
     elif os.path.isdir(input_dir):
-        file_list = utils.choose_tomograms(input_dir)
+        file_list = utils.choose_tomograms(input_dir, caller='convert')
         file_list = [file for file in file_list if file.endswith('.mrc')] #this assumes that the tomograms are in mrc format - we can change this to be more flexible if needed
 
     else:
