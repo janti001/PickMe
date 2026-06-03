@@ -622,16 +622,16 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
 
     return None
 
-def convert(input, output_dir=None, data_type = None):
+def convert(input_dir, output_dir=None, data_type = None):
     '''
     This function will take a tomogram reconstruction and convert the data type to a user-defined data type.
 
     If no data_type is provided, function defaults to Float32
 
-    :param input: directory or file path to the tomogram(s) to be converted
+    :param input_dir: directory or file path to the tomogram(s) to be converted
     :param output_dir: directory to which the converted files will be written
     :param data_type: desired data type to convert the tomogram(s) to. Must be a valid numpy data type (i.e., np.float32, np.int16)
-    :type input: str, pathlike
+    :type input_dir: str, pathlike
     :type output_dir: str, pathlike
     :type data_type: np.dtype
 
@@ -639,10 +639,10 @@ def convert(input, output_dir=None, data_type = None):
     #For now, we default to float32 as this is what I need for the moment
     
     # checking if input is a file or directory and creating list of files to convert
-    if os.path.isfile(input):
-        file_list = [input]
-    elif os.path.isdir(input):
-        file_list = utils.choose_tomograms(input)
+    if os.path.isfile(input_dir):
+        file_list = [input_dir]
+    elif os.path.isdir(input_dir):
+        file_list = utils.choose_tomograms(input_dir)
         file_list = [file for file in file_list if file.endswith('.mrc')] #this assumes that the tomograms are in mrc format - we can change this to be more flexible if needed
 
     else:
