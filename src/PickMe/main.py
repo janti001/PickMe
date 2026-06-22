@@ -470,7 +470,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
     if isinstance(input_job, (str, int)):
         input_job = _format_job_number(input_job)
         path_to_outputs = outputs_root
-        files = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
+        files = list(path_to_outputs.glob(f'**/job{input_job}/**/*.mrc*'))
         files = [str(f) for f in files]
     elif input_dir is None and choose_jobs: #choose obs has to return something - i.e., the choose job has to be run at least once prior if no input directory is provided
         #retrieve the files from the output/choose directory - latest job

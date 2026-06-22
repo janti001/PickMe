@@ -28,7 +28,7 @@ def get_mgraph(segmentation_file_path, caller=None):
         mgraph_parts = segmentation_file.split('_')
         #print(f'Mgraph parts: {mgraph_parts}')
         #print(f'{mgraph_parts[0]}')
-        mgraph_name = f'TS_{mgraph_parts[0]}{mgraph_suffix}'
+        mgraph_name = f'TS_{mgraph_parts[1]}{mgraph_suffix}'
 
     elif caller == 'decompress':
         mgraph_name = re.findall(r'\d+', segmentation_file)[0]
