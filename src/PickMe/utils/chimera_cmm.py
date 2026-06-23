@@ -26,8 +26,8 @@ def cmm_write(data: pd.DataFrame, tomogram_name: str, output_directory, **kwargs
             nx, ny, nz = entry['rlnNormalX'], entry['rlnNormalY'], entry ['rlnNormalZ']
             pixel_size = entry['rlnImagePixelSize']
             normal_id = i + normal_id_offset
-            cmm.write(f'<marker id="{i}" x="{x*pixel_size}" y="{y*pixel_size}" z="{z*pixel_size}" radius="1"/>\n')
-            cmm.write(f'<marker id="{normal_id}" x="{(x*pixel_size)+(pixel_size*nx)}" y="{(y*pixel_size)+(pixel_size*ny)}" z="{(z*pixel_size)+(pixel_size*nz)}" r="1" g="0" b="0" radius="1"/>\n')
+            cmm.write(f'<marker id="{i}" x="{x*pixel_size}" y="{y*pixel_size}" z="{z*pixel_size}" radius="10"/>\n')
+            cmm.write(f'<marker id="{normal_id}" x="{(x*pixel_size)+(pixel_size*nx)}" y="{(y*pixel_size)+(pixel_size*ny)}" z="{(z*pixel_size)+(pixel_size*nz)}" r="1" g="0" b="0" radius="10"/>\n')
             cmm.write(f'<link id1="{i}" id2="{normal_id}" r="3" g="238" b="255" radius="0.5"/>\n')
         cmm.write('</marker_set>\n')
     
