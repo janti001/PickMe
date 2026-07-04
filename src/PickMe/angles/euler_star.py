@@ -77,5 +77,3 @@ def euler_star(centre_of_mass, particles, label, micrograph, **details):
     return data_rows
 
 
-
-    
