@@ -14,4 +14,4 @@ AGENTS.md
 CLAUDE.md
 src/PickMe/pickme.code-workspace
 graphify-out/*
-
+uv.lock
