@@ -116,26 +116,29 @@ Then open a Pull Request on GitHub. Fill in the PR template — describe what ch
 
 ## Development Setup
 
+Requires Python ≥ 3.12 (see `pyproject.toml`'s `requires-python`).
+
 ```bash
-# Create and activate a virtual environment (recommended)
+# Create and activate the conda environment (recommended — matches PickMe.yml,
+# and correctly pulls in the Qt/napari GUI stack via conda-forge)
+conda env create -f PickMe.yml
+conda activate pickme
+```
+
+The environment file already installs PickMe in editable mode (`pip -e .`), so no separate `pip install` step is needed.
+
+Prefer a plain virtual environment instead? That works too:
+
+```bash
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-#Conda environment
-conda create -n pickme
-conda activate pickme
-
-# Install the package in editable mode with dev dependencies
-pip install -e '.[dev]'
-```
-
-If the project doesn't have a `[dev]` extras group yet, just install the base dependencies:
-
-```bash
 pip install -e .
 ```
 
-> **Note:** If you run into setup issues, please open an issue — it may be a documentation gap worth fixing.
+> **Note:** There is currently no `[dev]` extras group in `pyproject.toml` — the commands above already install everything needed to run and modify PickMe.
+>
+> If you run into setup issues, please open an issue — it may be a documentation gap worth fixing.
 
 ---
 
@@ -144,7 +147,7 @@ pip install -e .
 We keep things simple:
 
 - Follow [PEP 8](https://peps.python.org/pep-0008/) where reasonable
-- Add docstrings to new functions and classes
+- Add docstrings to new functions and classes, using **Google-style** docstrings (matching the rest of the codebase)
 - Keep functions focused — do one thing well
 - Comment non-obvious logic, especially anything mathematically involved
 
@@ -179,5 +182,5 @@ We're happy to help and want contributing to be a positive experience.
 *Thank you for helping make this tool better!* 🙏
 
 
-##Disclaimer**
+## Disclaimer
 I am new to this, so please do bear with me if anything is, structurally wrong or if things take a long time - still a work in progress but we will get there!

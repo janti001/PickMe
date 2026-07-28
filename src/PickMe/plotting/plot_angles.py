@@ -5,16 +5,40 @@ from ..utils import check_make_dir
 
 
 def plot_angles(star_data, output_dir, tomogram_name=None):
-    '''
-    Plots the distribution of the euler angles across all of the tomograms processed, to check if there are any biases in the distribution of angles which may affect downstream processing and alignment.
-    
-    Rot should have a uniform distribution, while tilt and psi may have some bias depending on the shape of the membrane and the sampling, but we want to check if there are any extreme biases which may affect downstream processing.
-    
-    :param star_data: the star dataframe containing the euler angles and other data for each particle
-    :param output_dir: directory win which the output of the job it is being called in. I.e., If it is being called in Job001 (which particle_extract) - this should be supplied.
-    :param tomogram_name: name of the tomogram file that is being processed. 
-    :return: a plot of the distribution of the euler angles
-    '''
+    """Save histograms of the tilt, rot, and psi Euler angle distributions.
+
+    Plots the distribution (histogram + KDE) of each of the three Euler
+    angles produced by `PickMe.angles.euler_star` — all in degrees — side
+    by side, so biases in particle orientation can be spotted before
+    downstream alignment. ``rlnAngleRot`` is drawn from a uniform random
+    distribution by `PickMe.angles.euler_star`, so it should look flat
+    here; ``rlnAngleTilt`` and ``rlnAnglePsi`` are derived from the actual
+    membrane normals and may legitimately show some bias depending on
+    membrane shape and sampling — the plot is for catching *extreme*
+    biases, not enforcing a particular shape.
+
+    Writes the figure to
+    ``<output_dir>/AnglePlots/<tomogram_name>.png`` when ``tomogram_name``
+    is given, or ``<output_dir>/AnglePlots/Angles_distribution.png``
+    otherwise (the ``AnglePlots`` subdirectory is created if it does not
+    already exist). Does not return anything.
+
+    Args:
+        star_data (pandas.DataFrame): STAR-file data containing at least
+            the ``rlnAngleTilt``, ``rlnAngleRot``, and ``rlnAnglePsi``
+            columns, as produced by `PickMe.angles.euler_star`.
+        output_dir (str or pathlib.Path): Job output directory (e.g. the
+            directory for the ``particle_extraction`` job) under which the
+            ``AnglePlots`` subdirectory is created.
+        tomogram_name (str, optional): Name of the tomogram being
+            plotted, used for the output filename when plotting a single
+            tomogram's angles. Defaults to None, which writes a single
+            aggregate ``Angles_distribution.png`` instead.
+
+    Note:
+        Writes a PNG file to disk as its only meaningful output; no value
+        is returned.
+    """
     colors= sns.color_palette('viridis')
     fig, ax = subplots(ncols=3, figsize=(15,6))
     sns.histplot(ax = ax[0], data=star_data['rlnAngleTilt'], alpha=0.5, color=colors[0], kde=True, bins=100)

@@ -5,7 +5,17 @@ import os
 
 
 def _format_tomogram_choices(files, max_visible=40):
-    """Return a readable list of available tomogram filenames for CLI prompts."""
+    """Format a numbered, human-readable listing of tomogram filenames.
+
+    Args:
+        files (list[str]): Absolute or relative file paths to list.
+        max_visible (int, optional): Maximum number of filenames to print
+            before truncating with a "... and N more" line. Defaults to 40.
+
+    Returns:
+        str: Multi-line string, one numbered filename per line, suitable
+        for printing directly in a CLI prompt.
+    """
     file_names = sorted(os.path.basename(file) for file in files)
     visible_names = file_names[:max_visible]
 
@@ -24,14 +34,39 @@ def _format_tomogram_choices(files, max_visible=40):
 
 def choose_tomograms(segmentation_directory, caller=None):
     '''
-    Function creates a list of absolute file paths from a given directory. 
+    List tomogram files in a directory, with an optional interactive filter.
 
-    :params segmentation_directory: Directory where the tomogram segmentation files are
-    :type segmentation_directory: str, pathlike
+    Globs `segmentation_directory` for candidate files, then prompts the
+    user to optionally narrow the list down to specific tomogram IDs.
 
-    :return files: list of segmentation files
-    :rtype: list
-    
+    Args:
+        segmentation_directory (str or pathlike): Directory containing the
+            tomogram (or segmentation) files to choose from.
+        caller (str, optional): Selects which glob pattern is used to find
+            candidate files. Defaults to None.
+
+            - None (or any value other than ``"convert"``): matches
+              ``*segment*`` — i.e. files with "segment" in the name,
+              assuming the segmentation software used leaves that marker
+              in the filename.
+            - ``"convert"``: matches ``*.mrc`` instead, for the
+              `decompress` pipeline stage, which operates on raw `.mrc`
+              tomogram files rather than segmentations.
+
+    Returns:
+        list[str]: File paths matching the glob pattern. If the user opts
+        to filter (see Note below), only paths containing one of the
+        chosen numeric tomogram IDs are returned; this may be an empty
+        list if none match. Otherwise, all matched paths are returned
+        unfiltered.
+
+    Note:
+        Prompts interactively via `input()`: first a yes/no question
+        (re-asked until answered ``y``/``yes``/``n``/``no``), and if yes,
+        a follow-up prompt asking for specific tomogram number IDs
+        (parsed out of the response with a digit regex, e.g.
+        ``"1007 1012"``). The available choices are printed to stdout via
+        :func:`_format_tomogram_choices` before that second prompt.
     '''
     #not sure which one of the two of these to use
     #first one assumes that the segmentation software that users use will leave a segment in the file name

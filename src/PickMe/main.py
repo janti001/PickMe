@@ -17,6 +17,18 @@ import re
 from . import sampling, utils, filter, plotting, angles
 from .config import mgraph_suffix, star_suffix
 
+"""Pipeline functions for the PickMe-EM CLI.
+
+This module holds the high-level pipeline functions that ``cli.py`` dispatches
+to for each subcommand: ``extract_and_store`` (``extract_objects``),
+``choose_object`` (``choose_objects``), ``particle_extract``
+(``particle_extraction``), ``decompress``, and ``convert``. Each function sets
+up its own job output directory under ``<output_root>/<job_name>/jobNNN`` (job
+numbers zero-padded to 3 digits) and reports progress via ``print()`` and
+``tqdm`` rather than a logging framework. Segmentation arrays are handled in
+zyx axis order throughout; STAR file coordinate columns are written as X/Y/Z.
+"""
+
 
 # --- Setting up parameters and data structures ---
 
@@ -28,22 +40,39 @@ full_data_dict = {} #dictionary associating tomogram, with objects, and the obje
 
 #this function just ensures that if job number of 1 is provided, 001 is parsed
 def _format_job_number(job_number):
+    """Zero-pad a job number to 3 digits, e.g. ``1`` -> ``'001'``."""
     return f'{int(job_number):03d}'
 
 # --- Object extraction and filtering ---
 def extract_and_store(input_dir: str, filter_choice=None, output_dir=None):
-    '''
-    Takes a list of tomogram segmentations, identifies all the objects, filter objects by NSR and provides a filtered object dataset, per tomogram.
-    
-    :param input_dir: directory, pathlike, to the directory containing ALL segmentation files
-    :param output_dir: directory, pathlike, to  where outputs are to be put
-    :type input_dir: string, pathlike
-    :type output_dir:string, pathlike
+    """Extract labeled objects from segmentation files and write filtered volumes.
 
-    :return data.csv: CSV file containing the tomograms and their objects
-    :rtype: dict
+    For each segmentation file found under `input_dir`, extracts labeled
+    objects via `skimage.measure.regionprops`, applies volume-normalized
+    knee-based filtering to drop small/noisy objects, and writes the filtered
+    segmentation back out as a gzip-compressed MRC file
+    (`<tomo_id>_filtered.mrc.gz`). Segmentation arrays are handled in zyx axis
+    order throughout.
 
-    '''
+    Args:
+        input_dir (str): Path, pathlike, to the directory containing all
+            segmentation files to process.
+        filter_choice: Currently unused — accepted but never read in this
+            function's body. Reserved for a future filtering-mode option.
+            Defaults to None.
+        output_dir (str, optional): Root directory for pipeline outputs. Job
+            output is written to `<output_dir>/filter/jobNNN`. Defaults to
+            `./outputs` when None.
+
+    Returns:
+        None: This function does not return a value. Filtered segmentations
+            are written to disk as gzip-compressed `_filtered.mrc.gz` files
+            under the job output directory; nothing is written to CSV.
+
+    Note:
+        Progress and a per-tomogram object count summary are printed via
+        `print()` and `tqdm`, not a logging framework.
+    """
     full_data = {} #this could be a class for sure
     # --- Making output directories
     output_directory = utils.check_make_dir(directory=output_dir, job_name='filter')
@@ -108,22 +137,65 @@ def extract_and_store(input_dir: str, filter_choice=None, output_dir=None):
 # --- Object choice with Napari plugin --- 
 
 def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output_dir=None, write_selections=False):
-    '''
-    This function takes a user's choice of tomogram's segmentation files, and can specify the specific objects witin these tomograms in which they wish to keep.
-    The user can only choose from objects which have passed the volume-based filter which aims to filter out noise.
+    """Let a user pick which filtered objects to keep, per tomogram.
 
-    This will open a napari window to allow users to visualise the objects in a particular tomogram.
+    Always begins by prompting interactively via `input()`:
+    "Are there any objects which you would like to select (y/n)?" The answer
+    determines which path runs, and the user can only choose from objects that
+    already passed the volume-based knee filter in `extract_and_store`:
 
-    The output of this function can be used to extract particle coordinates and output a star file.
+    - **yes**: Opens a napari viewer (with the napari-skimage Regionprops
+      widget) loaded with each tomogram and its filtered segmentation, and
+      blocks on `napari.run()` until the viewer window is closed. Labels
+      selected in the Regionprops table are kept. After the viewer closes,
+      the kept objects are written out — as a single gzip-compressed
+      `<tomo_id>_filtered_chosen.mrc.gz` per tomogram (voxels set to each
+      object's label value) if `write_selections` is False, or as individual
+      uncompressed `TS_<tomo_id>_membranes/TS_<tomo_id>_obj<label>.mrc` files
+      (voxels set to 1, not the label value) if `write_selections` is True.
+    - **no** + `write_selections=True`: Writes every object already present in
+      the filtered segmentation set (no further narrowing by selection) out
+      as its own uncompressed
+      `TS_<tomo_id>_membranes/TS_<tomo_id>_obj<label>.mrc` file (voxels set
+      to 1).
+    - **no** + `write_selections=False`: Leaves the filtered files untouched
+      and only prints their location.
 
-    :param input_dir: Directory containing the tomograms, these should be the tomograms from which segmentations where performed.
-    :param segmentation_dir: If users have a segmentation that they want to pick specific objects, they can supply the directory of these. Here, we assume that the segmetation files are in mrc format.
-    :param output_dir: user can select a desired directory to output this job - NOT RECOMMENDED
-    :type input_dir: str, pathlike
-    :type segmentation_dir: str, pathlike
+    The output of this function feeds into `particle_extract`. Segmentation
+    arrays are handled in zyx axis order throughout.
 
-    :return None: compressed mrc.gz files are written out.
-    '''
+    Args:
+        input_dir (str): Path, pathlike, to a tomogram file or a directory of
+            tomogram `.mrc` files — the reconstructions the segmentations were
+            performed on.
+        segmentation_dir (str, optional): Directory of segmentation `.mrc`
+            files to choose objects from, for users supplying their own
+            segmentations outside the pipeline. Defaults to None, which
+            sources segmentations from `input_job` or the latest
+            `extract_objects` job instead.
+        input_job (str or int, optional): A specific `extract_objects` job
+            number to source filtered segmentations from (e.g. `1` or
+            `'001'`). Ignored if `segmentation_dir` is given. Defaults to
+            None.
+        output_dir (str, optional): Root directory for pipeline outputs. Job
+            output is written to `<output_dir>/choose/jobNNN`. Changing this
+            from the pipeline default is not recommended. Defaults to None
+            (`./outputs`).
+        write_selections (bool, optional): If True, write each kept object
+            out as its own uncompressed `.mrc` file (voxels set to 1) instead
+            of one combined gzip-compressed segmentation per tomogram.
+            Defaults to False.
+
+    Returns:
+        None: This function does not return a value; results are written to
+            disk (or left untouched) as described above.
+
+    Note:
+        This function always prompts via `input()` before doing anything
+        else. When the user answers "yes", it also lazily imports `napari`
+        and `qtpy` (only inside that branch, since they are optional GUI
+        dependencies) and blocks until the napari window is closed.
+    """
     #ask user if they want specific objects
     ask_user = input('Are there any objects which you would like to select (y/n)?')
     while ask_user.lower() not in ['y', 'yes', 'n', 'no']:
@@ -419,25 +491,57 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
 def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None, output_dir=None):
-    '''
-    This function will take the objects that have been filtered and selected and particle extraction begins.
+    """Mesh filtered objects, sample surface points, and write particle STAR files.
 
-    Particle extraction involves:
-    - Gaussian smoothing the segmentation to get a smoother marching cubes output
-    - creating a triangular mesh across all of the desired objects
-    - sample these points at a set pixel distance
-    - calculate euler angles and make data entries to be stored in a dataframe
-    - write out dataframe to a star file
-    - Optionally, users can write out the particles to a .cmm file
+    For each segmentation file (sourced from `input_dir`, `input_job`, or the
+    latest `choose_objects` job), particle extraction:
 
-    :params input_dir: Directory containing the filtered and chosen segmentation objects. Users can provide their own segmentations, or be a part of the pipeline.
-    :params sample_rate: The minimum radius distance enforced between particle points
-    :params cmm: boolean, Option to enable the output of particle picks to a .cmm
-    :type sample_rate: int
-    :type cmm: bool
+    - Gaussian-smooths each labeled object so marching cubes produces a
+      smoother surface mesh.
+    - Runs marching cubes to build a triangular mesh across the object.
+    - Samples mesh points at a minimum spacing of `sample_rate`.
+    - Computes Euler angles from each sampled point's surface normal and
+      assembles particle data entries.
+    - Writes a per-tomogram `<name>.star` file, then folds those rows into an
+      aggregate `particles.star` covering every tomogram processed.
+    - Writes per-tomogram angle diagnostic plots.
+    - Optionally writes particle coordinates and normals to a Chimera `.cmm`
+      file per tomogram.
 
-    :return: None
-    '''
+    STAR coordinate columns are written as X/Y/Z, even though the underlying
+    segmentation arrays are handled in zyx axis order.
+
+    Args:
+        sample_rate (int): Minimum enforced distance, in pixels, between
+            sampled particle points on an object's surface.
+        cmm (bool): Whether to also write particle coordinates and normals to
+            a Chimera `.cmm` file per tomogram.
+        input_dir (str, optional): Directory of segmentation files to process
+            (`.mrc`, `.mrc.gz`, or `.mrc.bz2`). Defaults to None, in which
+            case `input_job` (if given) or the latest `choose_objects` job is
+            used instead.
+        input_job (str or int, optional): A specific `choose_objects` job
+            number to source chosen segmentations from (e.g. `1` or `'001'`).
+            Takes priority over `input_dir` when both would otherwise apply.
+            Defaults to None.
+        output_dir (str, optional): Root directory for pipeline outputs. Job
+            output is written to `<output_dir>/particle_extraction/jobNNN`.
+            Defaults to None (`./outputs`).
+
+    Returns:
+        None: This function does not return a value; results are written to
+            disk as per-tomogram `.star` files, an aggregate `particles.star`,
+            angle plots, and optional `.cmm` files.
+
+    Raises:
+        TypeError: If `cmm` is not a `bool`.
+        RuntimeError: If `input_dir` is None, no usable `input_job` is given,
+            and no prior `choose_objects` job exists to fall back on.
+
+    Note:
+        Progress and a per-tomogram particle count summary are printed via
+        `print()` and `tqdm`, not a logging framework.
+    """
     # --- Type checking
     if not isinstance(cmm, bool):
         print('If CMM argument is provided, it must be True or False')
@@ -547,18 +651,40 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
         
 
 def decompress(input_dir=None, input_job=None, output_dir=None):
-    '''
-    In this package, we write out all the segmentations in a compressed mrc format. 
-    Users may want to view these files in Chimera/ChimeraX therefore these files must be decompressed prior to use.
+    """Decompress gzip/bzip2 MRC segmentations for viewing in Chimera/ChimeraX.
 
-    Users can call this command to decompress any selected tomogram from any part of the pipeline - not stricly in a linear fashion.
+    This package writes segmentation outputs in compressed MRC formats (see
+    `extract_and_store`, `choose_object`), which most viewers cannot open
+    directly. This function decompresses a set of them back to plain `.mrc`.
+    Users can call it to decompress any selected tomogram from any part of
+    the pipeline, not strictly in a linear fashion. It always prompts
+    interactively via `input()`, first printing the available tomograms, then
+    asking whether to decompress all of them or only a user-specified subset
+    of tomogram IDs.
 
-    :param input_dir: directory containing the desired mrc.gz or mrc.bz2
-    :param job: Alternatively users can supply a job number if the file is from PickMe pipeline. Must be the exact string - 001 not 1
-    :type input_dir: str, pathlike
-    
-    :return: None
-    '''
+    Args:
+        input_dir (str, optional): Directory, pathlike, containing the
+            `.mrc.gz` or `.mrc.bz2` files to decompress. Ignored if
+            `input_job` is given. Defaults to None.
+        input_job (str or int, optional): Alternatively, a specific pipeline
+            job number to source compressed files from (e.g. `1` or `'001'`),
+            searched across all job types under the output root. Defaults to
+            None.
+        output_dir (str, optional): Root directory for pipeline outputs. Job
+            output is written to `<output_dir>/decompress/jobNNN`. Defaults
+            to None (`./outputs`).
+
+    Returns:
+        None: This function does not return a value; decompressed files are
+            written to disk as `TS_<tomo_id>_decompressed.mrc`.
+
+    Raises:
+        RuntimeError: If both `input_dir` and `input_job` are None.
+
+    Note:
+        This function always prompts via `input()` to ask which tomograms, if
+        any, decompression should be restricted to.
+    """
     if input_dir is None and input_job is None:
         raise RuntimeError('A directory or Job number must be provided for this job')
     
@@ -623,19 +749,37 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
     return None
 
 def convert(input_dir, output_dir=None, data_type = None):
-    '''
-    This function will take a tomogram reconstruction and convert the data type to a user-defined data type.
+    """Convert tomogram reconstruction(s) to float32 MRC files.
 
-    If no data_type is provided, function defaults to Float32
+    Reads each input tomogram and writes a converted copy named
+    `<part0>_<part1>_f32.mrc`, where the name parts are taken from splitting
+    the input filename on underscores. Output data is always cast to
+    `numpy.float32`, and the output voxel size is currently hardcoded to 10
+    rather than copied from the input file.
 
-    :param input_dir: directory or file path to the tomogram(s) to be converted
-    :param output_dir: directory to which the converted files will be written
-    :param data_type: desired data type to convert the tomogram(s) to. Must be a valid numpy data type (i.e., np.float32, np.int16)
-    :type input_dir: str, pathlike
-    :type output_dir: str, pathlike
-    :type data_type: np.dtype
+    Args:
+        input_dir (str): Path, pathlike, to a single tomogram file or a
+            directory of `.mrc` tomogram files to convert.
+        output_dir (str, optional): Root directory for pipeline outputs. Job
+            output is written to `<output_dir>/convert/jobNNN`. Defaults to
+            None (`./outputs`).
+        data_type: Intended to be the desired numpy data type to convert to
+            (e.g. `np.float32`, `np.int16`), but this parameter is currently
+            **not honoured** — regardless of what is passed, output is always
+            cast to `numpy.float32`. Defaults to None.
 
-    '''
+    Returns:
+        None: This function does not return a value; converted files are
+            written to disk as `<tomo_id>_f32.mrc`.
+
+    Raises:
+        RuntimeError: If `input_dir` is neither an existing file nor an
+            existing directory.
+
+    Note:
+        Progress is printed via `print()` and `tqdm`, not a logging
+        framework.
+    """
     #For now, we default to float32 as this is what I need for the moment
     
     # checking if input is a file or directory and creating list of files to convert

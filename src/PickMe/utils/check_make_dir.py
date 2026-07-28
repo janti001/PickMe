@@ -2,7 +2,21 @@ from pathlib import Path
 
 
 def get_output_root(directory=None):
-    """Return the root directory used for PickMe pipeline outputs."""
+    """Resolve the pipeline output root directory.
+
+    By default outputs are written under ``./outputs`` relative to the
+    directory PickMe is run from. If a directory is supplied, it is treated
+    as an explicit output root (expanded and resolved to an absolute path)
+    instead.
+
+    Args:
+        directory (str or pathlib.Path, optional): Candidate output root.
+            Defaults to None, which selects ``<cwd>/outputs``.
+
+    Returns:
+        pathlib.Path: The resolved output root directory. This is a
+        directory path only — it is not created by this function.
+    """
     if directory is None:
         return Path.cwd() / 'outputs'
     return Path(directory).expanduser().resolve()
@@ -10,22 +24,41 @@ def get_output_root(directory=None):
 
 def check_make_dir(job_name, directory=None):
     '''
-    When this function is called, it will check if there is an output directory for the current pipeline segment. 
-    For example, if this is ran in extract_and_store, it will check if there is an extract directory in output.
+    Create (and return) the next numbered job directory for a pipeline stage.
 
-    This is done so we can store any results we may want to write into an output directory.
+    Ensures the output root and a `job_name` subdirectory under it exist,
+    then picks the next job number and creates
+    ``<output_root>/<job_name>/job<NNN>`` (zero-padded to 3 digits), e.g. the
+    `extract_and_store` stage would create an `extract` job directory such
+    as ``outputs/extract/job001``.
 
-    By default outputs are written under ./outputs from the directory where PickMe is run.
-    If directory is provided, it is treated as the pipeline output root.
+    Job numbering is global across the whole output root, not per
+    `job_name`: every call scans **all** `job###` directories anywhere
+    under `output_root` (via a recursive glob) and picks
+    ``max(existing job numbers) + 1``. So if `filter` already has
+    `job001`..`job003` and this is the first call for `choose`, the new
+    directory will be `choose/job004`, not `choose/job001`. Callers that
+    rely on "latest job" logic depend on this shared, monotonically
+    increasing counter.
 
-    :param directory: Path of the directory for which we want to check.
-    :param job_name: name of the type of job that is being run
-    :type directory: str, pathlike
-    :type jobe_name: str
+    Args:
+        job_name (str): Name of the pipeline stage/job type being run
+            (e.g. ``"filter"``, ``"choose"``, ``"particle_extract"``). Used
+            as the subdirectory name under the output root.
+        directory (str or pathlib.Path, optional): Output root override,
+            passed through to :func:`get_output_root`. Defaults to None,
+            which resolves to ``<cwd>/outputs``.
 
-    :return output_directory: file path of the output directory that was made
+    Returns:
+        str: Absolute path of the newly created job directory, as a plain
+        string (not a `pathlib.Path`) — e.g.
+        ``"/home/user/outputs/filter/job004"``.
+
+    Note:
+        Prints the resolved output root to stdout before creating any
+        directories.
     '''
-    
+
     output_root = get_output_root(directory)
     print(f'This is output root: {output_root}')
     output_root.mkdir(parents=True, exist_ok=True)

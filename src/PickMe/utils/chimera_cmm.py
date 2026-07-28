@@ -5,13 +5,34 @@ import pandas as pd
 
 
 def cmm_write(data: pd.DataFrame, tomogram_name: str, output_directory, **kwargs):
-    '''
-    The particle coordinates and their normals will be written to a .cmm file which can be viewed in chimera
+    '''Write particle coordinates and normals to a Chimera/ChimeraX .cmm file.
 
-    :param data: Dataframe containing all the data entries you wish to process. This must contain x,y,z coordinates and normals in a relion-like naming convention. I.e,. rlnCordinateX, and rlnNormalX
-    :param tomogram_name: The tomogram file identifier which is to-be processed. 
-    :param output_directory: Directory where cmm files should be written to. Ideally the same output directory in which the job is being run should be applied here. 
+    For each row in `data`, writes one marker at the particle coordinate
+    and a second marker offset along its normal (scaled by pixel size and
+    the grid sampling distance), joined by a link — so opening the .cmm in
+    Chimera/ChimeraX shows each particle as a short vector indicating its
+    orientation.
 
+    Args:
+        data (pandas.DataFrame): Particle table with RELION-style STAR
+            columns: `rlnCoordinateX`, `rlnCoordinateY`, `rlnCoordinateZ`,
+            `rlnNormalX`, `rlnNormalY`, `rlnNormalZ`, and
+            `rlnImagePixelSize`. One row per particle.
+        tomogram_name (str): Tomogram identifier, used both in the output
+            filename (``<tomogram_name>.cmm``) and as part of the marker
+            set's display name.
+        output_directory (str or pathlib.Path): Directory the `.cmm` file
+            is written into.
+        **kwargs: Must include `sampling` (the grid sampling distance used
+            to generate `data`), which is embedded in the marker set name
+            for reference. No other keyword arguments are used.
+
+    Returns:
+        None: Writes ``<output_directory>/<tomogram_name>.cmm`` as a side
+        effect; nothing is returned.
+
+    Raises:
+        KeyError: If `sampling` is not present in `kwargs`.
     '''
     grid_sampling = kwargs['sampling']
     output_path = Path(output_directory) / f'{tomogram_name}.cmm'

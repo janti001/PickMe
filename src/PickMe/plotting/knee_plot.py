@@ -5,17 +5,40 @@ from pathlib import Path
 
 
 def plot_knee(normalised_volume, index_threshold, norm_threshold, micrograph, output_dir):
-    """
-    This function plots the volume-based filter so users can visualise the filter being imposed.
+    """Save a diagnostic scatter plot of the volume-based knee filter.
 
-    :param normalised_volume: array of volumes which have been normalised against the max volume within the array, and be assorted in ascending order
-    :param index_threshold: Integer value giving the index in which the objects should be retreieved
-    :param norm_threshold: threshold value of the max normalised value 
-    :type normalised_volume: numpy.ndarray
-    :type threshold: int, np.int64
+    Plots each object's max-normalised volume against its sorted index,
+    overlaid with the reference diagonal used to find the knee and a
+    horizontal line marking the detected threshold, so the filtering
+    decision made by `PickMe.filter.knee_detection` can be inspected
+    visually. Writes the figure to
+    ``<output_dir>/plots/<micrograph>_knee.png`` (the ``plots``
+    subdirectory is created if it does not already exist) and does not
+    return anything.
 
-    :return: png file of figure 
-    :rtype: tuple(fig, ax)
+    Args:
+        normalised_volume (numpy.ndarray): Object volumes normalised
+            against the largest volume in the set (values in [0, 1]),
+            sorted ascending.
+        index_threshold (int): Index into ``normalised_volume`` at which
+            the knee (and therefore the volume filter cutoff) was
+            detected.
+        norm_threshold (float): The normalised-volume value at
+            ``index_threshold``, drawn as the horizontal threshold line.
+        micrograph (str): Name of the tomogram being processed; used in
+            the plot title and the output filename.
+        output_dir (str or pathlib.Path): Job output directory. The plot
+            is written under a ``plots`` subdirectory of this path.
+
+    Raises:
+        TypeError: If ``index_threshold`` is a string or float rather
+            than an int.
+        ValueError: If ``normalised_volume`` contains values outside
+            [0, 1], i.e. it is not actually normalised.
+
+    Note:
+        Writes a PNG file to disk as its only meaningful output; no value
+        is returned.
     """
 
     # --- Checking the correct data

@@ -3,19 +3,34 @@ from numpy import max, min
 from skimage.measure import marching_cubes
 
 def safe_marching_cubes(map, initial_level, step_size):
-    '''
-    This function creates a mesh from a segmentation as a Numpy array. 
+    """Run marching cubes on a segmentation, retrying at adjusted levels.
 
-    :param map: Numpy ndarray of the membrane segmentation
-    :param initial_level: The initial contour level to use on the segmentation
-    :param step_size: If initial contour does not work, then step size determines how far to search
-    :rtype map: Numpy ndarray
-    :rtype initial_level: (float, int)
-    :rtype step_size: (float, int)
+    Wraps `skimage.measure.marching_cubes` with a retry loop: if the
+    requested contour level lies outside the data's value range, or if
+    marching cubes fails to find a surface at that level, the level is
+    nudged and the attempt is repeated (up to ``max_attempts`` times)
+    before giving up.
 
-    :return: return the coordinates of the triangular mesh vertices, their normals relative to the density at that position, faces and values
+    Args:
+        map (numpy.ndarray): Segmentation volume to mesh, in zyx order.
+        initial_level (float or int): Contour level to attempt first.
+        step_size (float or int): Intended to control how far the contour
+            level is adjusted between retries; must be between 0 and 1.
+            See the discrepancy report — this value is validated but not
+            actually used in the retry logic.
 
-    '''
+    Returns:
+        tuple: ``(verts, faces, normals, values)`` as returned by
+            `skimage.measure.marching_cubes` — mesh vertex coordinates
+            (zyx order, matching ``map``), triangular faces, per-vertex
+            normals, and the sampled density value at each vertex.
+
+    Raises:
+        TypeError: If ``initial_level`` is not a float or int, or if
+            ``step_size`` is not a float or int in [0, 1].
+        RuntimeError: If no valid contour is found after ``max_attempts``
+            retries.
+    """
 
     #ensure that initial level and step size are either floats or integers
     if initial_level or step_size is not None:

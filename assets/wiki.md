@@ -73,7 +73,18 @@ RELION / WarpTools subtomogram averaging
 
 ## Installation
 
-### Option 1 — pip install (recommended)
+### Option 1 — conda environment (recommended)
+
+This matches how the project itself is developed and correctly pulls in the Qt/napari GUI stack via conda-forge:
+
+```bash
+conda env create -f PickMe.yml
+conda activate pickme
+```
+
+The `PickMe.yml` environment file already installs the package in editable mode (`pip -e .`), so no separate `pip install` step is needed.
+
+### Option 2 — pip install
 
 ```bash
 pip install pickme-em
@@ -82,67 +93,55 @@ pip install pickme-em
 For the latest development version directly from GitHub:
 
 ```bash
-pip install git+https://github.com/YOUR_ORG/pickme-em.git
+pip install git+https://github.com/janti001/PickMe.git
 ```
 
-### Option 2 — Clone and install manually
+### Option 3 — Clone and install manually
 
 ```bash
-git clone https://github.com/YOUR_ORG/pickme-em.git
-cd pickme-em
+git clone https://github.com/janti001/PickMe.git
+cd PickMe
 pip install -e .
 ```
 
 The `-e` flag installs in editable mode, so any changes you make to the source are immediately reflected without reinstalling.
 
-### Installing with dev dependencies
-
-If you plan to contribute or run tests:
-
-```bash
-pip install -e ".[dev]"
-```
+> **Note:** There is currently no `[dev]` extras group in `pyproject.toml` — `pip install -e .` (or the conda environment above) already installs everything needed to run and modify PickMe.
 
 ### Requirements
 
-- Python ≥ 3.10
+- Python ≥ 3.12 (see `pyproject.toml`'s `requires-python` for the exact constraint)
 - Napari (installed automatically as a dependency)
-- See `pyproject.toml` or `PickMe.yml` for the full dependency list
+- See `pyproject.toml` or `PickMe.yml` for the full dependency list — no versions are pinned
 
 > **Note:** It is strongly recommended to use a virtual environment or conda environment to avoid dependency conflicts with other cryo-ET tools.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install pickme-em
-```
 
 ---
 
 ## Quick Start
 
-> 📝 The commands below are illustrative placeholders. Update with real command names as the CLI stabilises.
+> 📝 The command names below are real subcommands (`PickMe <subcommand>`); the paths and job numbers are still illustrative placeholders — swap in your own.
 
-### 1. Pick particles from a membrane segmentation
+### 1. Extract labeled objects from a membrane segmentation
 
 ```bash
-pickme-em extract_objects \
-  --input-dir membrane_mask.mrc \
+PickMe extract_objects \
+  --input-dir path/to/directory/containing/segmentation/files
 ```
 
 ### 2. Inspect picks in Napari
 
 ```bash
-pickme-em choose_objects \
+PickMe choose_objects \
   --input-dir path/to/reconstructed/tomograms/which/segmentations/are/from/ \
   --input-job specify-job-number \
-  --segmentation-dir path/to/other/segmentations/users/may/want/t/use/
+  --segmentation-dir path/to/other/segmentations/users/may/want/to/use/
 ```
 
 ### 3. Batch process a dataset
 
 ```bash
-pickme-em particle_extraction \
+PickMe particle_extraction \
   --input-dir /path/to/segmentations \
   --input-job job-number \
   --sample-rate pixel_number \
@@ -167,13 +166,13 @@ PickMe-EM uses the **marching cubes** algorithm (`skimage.measure.marching_cubes
 
 Each surface point has an associated **outward-facing normal vector** computed from the mesh geometry. These normals define the orientation of a particle sitting on the membrane surface.
 
-PickMe-EM converts these normals into **RELION ZYZ Euler angles** (rot, tilt, psi):
+PickMe-EM converts these normals into **RELION ZYZ Euler angles** (rot, tilt, psi), all reported in **degrees**:
 
 | Angle | Meaning |
 |---|---|
-| `tilt` | Polar angle of the normal from the Z axis |
-| `rot` | Azimuthal rotation around Z |
-| `psi` | In-plane rotation (set to 0 by default for new picks) |
+| `rot` | Not derived from the normal — a uniform random draw in `[0, 360)`, negated. There is no meaningful azimuthal reference around the membrane normal, so this angle is randomized rather than computed from the data |
+| `tilt` | Polar angle between the particle's normal vector and the Z axis (`degrees(acos(nz))`) |
+| `psi` | Azimuthal angle of the normal in the XY-plane (`-degrees(atan2(ny, nx))`), negated to match RELION's rotation sense — **not** fixed at 0 |
 
 > **Convention note:** PickMe-EM follows the **inverted ZYZ convention** used by RELION, where the rotation matrix R is applied as R⁻¹ to go from particle frame to tomogram frame. Getting this wrong is a common source of spherical reconstruction artefacts.
 
@@ -185,38 +184,92 @@ Output is written as a RELION-compatible `.star` file containing per-particle co
 
 ## CLI Reference
 
-> 📝 Full command documentation will be added as the CLI stabilises. Run `pickme-em --help` or `pickme-em <command> --help` for up-to-date usage.
+> 📝 Full command documentation will be added as the CLI stabilises. Run `PickMe --help` or `PickMe <command> --help` for up-to-date usage.
+
+There are five subcommands: `extract_objects`, `choose_objects`, `particle_extraction`, `decompress`, and `convert`.
+
+> **Job numbering is global, not per stage.** Every job directory (`outputs/<job_name>/jobNNN`) is numbered from a single counter shared across the *entire* output root — `check_make_dir` globs for all `job###` directories anywhere under the output root and picks `max(existing) + 1`. So if `filter` already holds `job001`–`job003`, the first `choose_objects` run produces `choose/job004`, not `choose/job001`.
+>
+> **Interactive prompts:** `extract_objects`, `choose_objects`, `convert`, and `decompress` all prompt interactively via `input()` at some point during the run. Only `particle_extraction` is safe to call in a non-interactive batch script.
 
 ### Global options
 
 ```
-pickme -h        Show all available commands
-pip show PickMe-em     Show installed version
+PickMe -h               Show all available commands
+pip show PickMe-em      Show installed version
 ```
 
-### `pickme-em particle_extraction`
+### `PickMe extract_objects`
 
-Extract particles from a membrane segmentation.
-
-| Flag | Type | Description |
-|---|---|---|
-| `--input-dir` | path | Input segmentation mask (.mrc) |
-| `--input-job` | integer | job number that users may want to use insted of path |
-| `--output` | path | Output STAR file path |
-| `--sample-rate` | float | Target spacing between picks in pix (default: 5) |
-| `--smooth-sigma` | float | Gaussian smoothing sigma before marching cubes (default: 3) | *NOT YET AN OPTION*
-| `--cmm`   | bool | Whether user wants a cmm file written
-
-### `pickme-em choose_objects`
-
-Open a Napari viewer with particles overlaid on the tomogram.
+Find `*segment*` files, extract labeled objects, filter them by volume knee detection, and write filtered results.
 
 | Flag | Type | Description |
 |---|---|---|
-| `--input-dir` | path | Tomogram to display (.mrc) |
-| `--input-job` | integer | job number that users ma want to use instead of path |
+| `--input-dir` | path | **Required.** Directory containing segmentation files of interest |
+| `--output-dir` | path | Optional — pipeline output root. Defaults to `./outputs` in the working directory |
+| `--filter` | str | Optional — accepted but currently ignored. Volume-normalized knee detection always runs regardless of what you pass here |
+
+Output is written to `outputs/filter/jobNNN/` (job name is `filter`, not `extract_objects`), as gzip-compressed `_filtered.mrc.gz` files — never bz2.
+
+> ⚠️ This command prompts interactively via `input()` (through `utils.choose_tomograms`) to ask which tomograms to process. It is **not safe to run in a non-interactive batch script.**
+
+### `PickMe choose_objects`
+
+Optionally open a Napari viewer to manually select objects from a filtered segmentation.
+
+| Flag | Type | Description |
+|---|---|---|
+| `--input-dir` | path | **Required.** Directory containing the reconstructed tomograms |
 | `--segmentation-dir` | path | Optional — use a segmentation that you may have that is not in the PickMe pipeline |
-| `--output-dir`    | path | optional - desired output directory 
+| `--output-dir` | path | Optional — desired output directory |
+| `--input-job` | integer | Optional — use a specific filter job number as input instead of the latest one, e.g. `4` selects `job004`. Remember job numbers are assigned from a single counter shared across all stages (see note above), so they are not sequential per stage |
+| `--write-selections` | flag | Optional — write selected objects to their own `.mrc` files in a subdirectory per tomogram ID, instead of one combined file |
+
+Output is written to `outputs/choose/jobNNN/` (job name is `choose`, not `choose_objects`).
+
+> ⚠️ This command always prompts interactively via `input()` to ask which objects to keep. It is **not safe to run in a non-interactive batch script.**
+
+### `PickMe particle_extraction`
+
+Gaussian-smooth objects, run marching cubes, sample surface points, compute Euler angles, and write STAR files (and optionally a `.cmm` file).
+
+| Flag | Type | Description |
+|---|---|---|
+| `--sample-rate` | integer | **Required.** Minimum enforced radius, in pixels/voxels (not Ångströms), between two neighboring picks — no default is set by the CLI |
+| `--input-dir` | path | Optional — directory containing segmentation files to sample. If not provided, the latest `choose` job is used |
+| `--input-job` | integer | Optional — a specific job number to use instead of the latest `choose` job. Provide the three-digit identifier, e.g. `001` |
+| `--output-dir` | path | Optional — pipeline output root. Defaults to `./outputs` |
+| `--cmm` | flag | Optional — also write particle coordinates and normals to a `.cmm` file |
+
+This is the only subcommand that does **not** prompt via `input()` — it is safe to call in a non-interactive batch script.
+
+### `PickMe decompress`
+
+Decompress `.mrc.gz` or `.mrc.bz2` files into `.mrc`, useful for viewing in Chimera/ChimeraX.
+
+| Flag | Type | Description |
+|---|---|---|
+| `--input-dir` | path | Directory containing the `.mrc.gz`/`.mrc.bz2` files. You must supply either this or `--input-job` |
+| `--input-job` | integer | A job number from the PickMe pipeline to decompress instead of a path. You must supply either this or `--input-dir` |
+| `--output-dir` | path | Optional — pipeline output root. Defaults to `./outputs` |
+
+Supplying neither `--input-dir` nor `--input-job` raises a `RuntimeError`.
+
+> ⚠️ This command always prompts interactively via `input()` to ask which tomograms to decompress. It is **not safe to run in a non-interactive batch script.**
+
+### `PickMe convert`
+
+Convert tomogram data types — useful if downstream software requires a specific type.
+
+| Flag | Type | Description |
+|---|---|---|
+| `--input-dir` | path | **Required.** Directory containing the tomograms you wish to convert |
+| `--output-dir` | path | Optional — pipeline output root. Defaults to `./outputs` |
+| `--data-type` | str | Intended target numpy dtype (e.g. `float32`, `int16`) |
+
+> ⚠️ **Known limitation:** `--data-type` is currently accepted but ignored — output is always cast to `numpy.float32` regardless of what you pass.
+>
+> ⚠️ This command also prompts interactively via `input()` (through `utils.choose_tomograms`) to ask which tomograms to process. It is **not safe to run in a non-interactive batch script.**
 
 ---
 
@@ -233,7 +286,7 @@ PickMe-EM uses [Napari](https://napari.org) for visual quality control of partic
 ### Launching the viewer
 
 ```bash
-pickme-em choose_objects  --input-dir tomo_001.mrc
+PickMe choose_objects --input-dir path/to/tomogram/directory
 ```
 
 Napari will open as an interactive GUI. You can:
@@ -257,10 +310,14 @@ PickMe-EM outputs a RELION 3.1-compatible STAR file. Key columns:
 | Column | Description |
 |---|---|
 | `rlnCoordinateX/Y/Z` | Particle position in tomogram voxels |
-| `rlnAngleRot` | ZYZ Euler angle — rot (azimuthal) |
-| `rlnAngleTilt` | ZYZ Euler angle — tilt (polar) |
-| `rlnAnglePsi` | ZYZ Euler angle — psi (in-plane) |
+| `rlnOriginX/Y/Z` | Always `0` |
+| `rlnAngleRot` | ZYZ Euler angle — rot, in degrees (randomized — see [Core Concepts](#surface-normals-and-euler-angles)) |
+| `rlnAngleTilt` | ZYZ Euler angle — tilt, in degrees (polar angle from the normal) |
+| `rlnAnglePsi` | ZYZ Euler angle — psi, in degrees (azimuthal angle of the normal, not fixed at 0) |
 | `rlnMicrographName` | Source tomogram name |
+| `rlnObject` | Object label within the tomogram |
+| `rlnNormalX/Y/Z` | Surface normal vector at the particle |
+| `rlnImagePixelSize` | Pixel size in Ångströms, read from the MRC header |
 
 This file can be used directly with RELION's subtomogram averaging pipeline or passed to WarpTools `ts_export_particles`.
 
@@ -275,7 +332,7 @@ Ensure your issue templates are in `.github/ISSUE_TEMPLATE/` (uppercase, singula
 ### Picks look uniform / spherical reconstruction artefact
 
 This is almost always caused by one of:
-- **Missing Gaussian smoothing** — binary masks produce quantized axis-aligned normals. Increase `--smooth-sigma`.
+- **Missing Gaussian smoothing** — binary masks produce quantized axis-aligned normals. `particle_extraction` applies this automatically (sigma is currently hardcoded, not yet an exposed CLI flag) — if you are calling the underlying functions directly, make sure smoothing runs before marching cubes.
 - **Inverted rotation convention** — check that the ZYZ rotation is applied in the RELION-expected sense (R⁻¹, not R).
 - **Swapped rot/psi assignment** — `rot` encodes the azimuthal angle of the normal; `psi` should be 0 for fresh picks.
 
@@ -286,7 +343,7 @@ Napari requires a display. On a headless Linux system, use a virtual display:
 ```bash
 export DISPLAY=:0
 Xvfb :0 -screen 0 1024x768x24 &
-pickme-em view ...
+PickMe choose_objects ...
 ```
 
 Or use X forwarding over SSH: `ssh -X user@server`.
@@ -296,7 +353,7 @@ Or use X forwarding over SSH: `ssh -X user@server`.
 Use a dedicated virtual environment. If you see conflicts with numpy or other scientific packages, try:
 
 ```bash
-conda create -n pickme python=3.10
+conda create -n pickme python=3.12
 conda activate pickme
 pip install pickme-em
 ```

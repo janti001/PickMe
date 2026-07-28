@@ -4,23 +4,56 @@ from math import sqrt, acos, atan2
 
 
 def euler_star(centre_of_mass, particles, label, micrograph, **details):
-    '''
-    This function will take the coordinates of the centre of mass of the segmentation and particle x,y,z coordinates to calculate two euler angles.
-    In a spherical coordinate system, to euler angles help determine their position, thus only two are needed.
+    """Convert sampled membrane particles into RELION STAR-file data rows.
 
-    :param centre_of_mass: tuple coordinates of the centre of mass of the segmentation, zyx format
-    :param particles: particle dictionary containing their coordinates and normal vectors
-    :param label: object number within a particular tomogram
-    :param micrograph: Name of the tomogram segmentation being processed 
-    :param **details: any other details which may be useful to add to the star file, such as micrograph name, or other data which may be useful for downstream processing. This is a flexible argument which can be used to add any other data which may be useful for downstream processing, such as micrograph name, or other data which may be useful for downstream processing.
-    :type label: int
-    :type centre_of_mass: tuple
-    :type particles: dict
+    For each particle, keeps only the outer membrane leaflet (the point
+    whose normal points away from the segmentation's centre of mass) and
+    assigns it a ZYZ Euler triplet (rot, tilt, psi) in the RELION
+    convention, all in **degrees**:
 
-    :return: a list of dictionaries wth the entry fields
-    :rtype: list
+    * ``rot`` — a uniform random draw in [0, 360), negated. There is no
+      meaningful azimuthal reference around the membrane normal, so this
+      angle is not derived from the data.
+    * ``tilt`` — ``degrees(acos(nz))``, the polar angle between the
+      particle's normal vector and the z-axis.
+    * ``psi`` — ``-degrees(atan2(ny, nx))``, the azimuthal angle of the
+      normal in the xy-plane, negated to match RELION's rotation sense.
 
-    '''
+    Outer-leaflet selection is done via the dot product of the particle's
+    displacement from the centre of mass, ``d = particle - centre_of_mass``
+    (zyx order), with its normal vector ``n``: particles are kept only when
+    ``dot(n, d) > 0``, i.e. the normal points outward.
+
+    Args:
+        centre_of_mass (tuple): Centre of mass of the segmented object, in
+            zyx order (as produced by ``skimage.measure.regionprops``).
+        particles (dict): Particle dictionary as returned by the sampling
+            functions in `PickMe.sampling`, e.g.
+            `PickMe.sampling.non_random_membrane_sampling` — each value is
+            a dict with ``'coordinates'`` (zyx) and ``'normal'`` (zyx).
+        label (int): Object number of this segmentation within its
+            tomogram, written to the ``rlnObject`` column.
+        micrograph (str): Name of the tomogram/segmentation being
+            processed, written to the ``rlnMicrographName`` column.
+        **details: Extra keyword values for the output rows. Must include
+            ``psize`` (float), the pixel size in Ångströms (read from the
+            MRC header's ``voxel_size.x``), written to the
+            ``rlnImagePixelSize`` column. Other keys passed by the caller
+            (e.g. ``tomo_dimensions``) are accepted but currently unused —
+            see the discrepancy report.
+
+    Returns:
+        list: One dict per kept (outer-leaflet) particle, each with the
+            STAR columns ``rlnCoordinateX/Y/Z`` (particle position, pixel
+            units, from the zyx coordinates reordered to x/y/z),
+            ``rlnOriginX/Y/Z`` (always 0), ``rlnAngleRot``,
+            ``rlnAngleTilt``, ``rlnAnglePsi`` (all degrees),
+            ``rlnMicrographName``, ``rlnObject``, ``rlnNormalX/Y/Z``
+            (normal vector, x/y/z order), and ``rlnImagePixelSize``.
+
+    Raises:
+        KeyError: If ``details`` does not contain ``'psize'``.
+    """
 
     # -- Type checking before doing any processing
     # haven't put anything here for now - can come back to this

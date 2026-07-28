@@ -1,16 +1,33 @@
 
 def choose_object(data):
-    '''
-    This function takes a user's choice of tomogram's segmentation files, and can specify the specific objects witin these tomograms in which they wish to keep.
-    The user can only choose from objects which have passed the volume-based filter which aims to filter out noise.
+    '''Ask the user whether they want to hand-pick objects from filtered data.
 
-    The output of this function can be used to extract particle coordinates and output a star file.
+    Intended to let the user choose specific objects to keep, per
+    tomogram, from the volume-filtered candidate set — restricting which
+    objects go on to particle extraction. As currently implemented, this
+    function only asks the yes/no question and does not yet perform any
+    selection; see Note.
 
-    :param data: Dictionary containing the data. Key: tomogram, value: tomogram segmentation object dictionary (also dictionary)
-    :type data: dict
+    Args:
+        data (dict): Dictionary keyed by tomogram, with each value itself
+            a dictionary of that tomogram's (already volume-filtered)
+            segmentation objects.
 
-    :return data_final: original dictionary modified with the appropriate choices from the user
-    :rtype data_final: dict
+    Returns:
+        None: Currently always returns `None`, regardless of the user's
+        answer. See Note — the intended per-object selection (docstring
+        title notwithstanding) is not implemented.
+
+    Note:
+        Prompts interactively via `input()` for a yes/no answer (re-asked
+        until answered ``y``/``yes``/``n``/``no``). **Likely bug /
+        incomplete implementation**: the answer is parsed into a local
+        boolean (`ask_user`) but that value is never used — the function
+        falls straight through to ``return None``. The commented-out code
+        below the `return` ("NAPARI plugin would be here...") indicates
+        the actual object-selection logic was never written. Reported
+        here per the "document, don't fix" constraint; not implemented in
+        this pass.
     '''
     ask_user = input('Before processing, are there any objects of interest you would like to select from the filtered set during processing?')
     while ask_user.lower() not in ['y', 'yes', 'n', 'no']:
