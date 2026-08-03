@@ -44,7 +44,7 @@ def _format_job_number(job_number):
     return f'{int(job_number):03d}'
 
 # --- Object extraction and filtering ---
-def extract_and_store(input_dir: str, filter_choice=None, output_dir=None):
+def filter_objects(input_dir: str, filter_choice=None, output_dir=None):
     """Extract labeled objects from segmentation files and write filtered volumes.
 
     For each segmentation file found under `input_dir`, extracts labeled
@@ -142,7 +142,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
     Always begins by prompting interactively via `input()`:
     "Are there any objects which you would like to select (y/n)?" The answer
     determines which path runs, and the user can only choose from objects that
-    already passed the volume-based knee filter in `extract_and_store`:
+    already passed the volume-based knee filter in `filter_objects`:
 
     - **yes**: Opens a napari viewer (with the napari-skimage Regionprops
       widget) loaded with each tomogram and its filtered segmentation, and
@@ -172,8 +172,8 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
             files to choose objects from, for users supplying their own
             segmentations outside the pipeline. Defaults to None, which
             sources segmentations from `input_job` or the latest
-            `extract_objects` job instead.
-        input_job (str or int, optional): A specific `extract_objects` job
+            `filter_objects` job instead.
+        input_job (str or int, optional): A specific `filter_objects` job
             number to source filtered segmentations from (e.g. `1` or
             `'001'`). Ignored if `segmentation_dir` is given. Defaults to
             None.
@@ -228,7 +228,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         filtered_seg_list = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
         filtered_seg_list = [str(f) for f in filtered_seg_list]
     elif segmentation_dir is not None:
-        filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc') #This o
+        filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc*') 
     
     #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
     data_dict={} #this could be changed to a class

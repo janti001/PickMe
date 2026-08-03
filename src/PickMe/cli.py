@@ -13,7 +13,7 @@ def build_parser():
     # --------------------------------
     # Subcommand 1: Object extraction
     # --------------------------------
-    object_extract_parser = subparser.add_parser('extract_objects',
+    object_extract_parser = subparser.add_parser('filter_objects',
                                                  help='Identifies objects in a segmentaion and extracts and filters them')
     
     object_extract_parser.add_argument('--input-dir', required=True,
@@ -110,12 +110,13 @@ def main():
     args = parser.parse_args()
     #impotant to note - in subcommand options turns to _
     # e.g,. --input-dir = input_dir
-    if args.job == 'extract_objects':
-        from PickMe.main import extract_and_store
+    if args.job == 'filter_objects':
+        from PickMe.main import filter_objects
 
-        extract_and_store(input_dir=args.input_dir,
-                          filter_choice=args.filter,
-                          output_dir=args.output_dir)
+        filter_objects(input_dir=args.input_dir,
+                        filter_choice=args.filter,
+                        output_dir=args.output_dir)
+        
     if args.job == 'choose_objects':
         from PickMe.main import choose_object
 
