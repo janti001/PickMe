@@ -13,6 +13,7 @@ dependencies:
   - starfile
   - mrcfile
   - napari
+  - napari-mrcfile-reader
   - napari-skimage
   - scikit-image
   - seaborn
