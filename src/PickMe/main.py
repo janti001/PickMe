@@ -228,7 +228,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
     output_directory = utils.check_make_dir(directory=output_dir, job_name='choose')
     if os.path.isfile(input_dir):
         tomogram_list = [input_dir]
-    if os.path.isdir(input_dir):
+    elif os.path.isdir(input_dir):
         tomogram_list = glob.glob(os.path.join(input_dir, '*.mrc')) #this assumes that the tomograms are in mrc format - we can change this to be more flexible if needed
     outputs_root = utils.get_output_root(output_dir)
     if segmentation_dir is None and input_job is None:
@@ -504,6 +504,36 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
                     pbar.update(1)
             print(f'\n\nAll object data has been written to gzipped mrc files in {output_directory}!')
         
+        elif write_selections == True:
+            with tqdm(total=len(final_data), desc='Writing', unit='Tomogram', leave=True) as pbar:
+                for tomo_id, selected_objects in final_data.items():
+                    tomogram_path = data_dict.get(tomo_id)['tomogram']
+                    out_dir = os.path.join(output_directory, f'TS_{tomo_id}_membranes')
+                    os.makedirs(out_dir, exist_ok=True)
+                    pbar.set_postfix_str(f'Processing tomogram: {tomo_id}...')
+                    if tomogram_path is None:
+                        print(f'Warning: no matching tomogram found for {tomo_id}')
+                        pass
+
+                    with mrcfile.open(tomogram_path, mode='r') as mrc:
+                        shape_zyx = mrc.data.shape        # no .copy() needed for shape
+                        pix_size = mrc.voxel_size.x
+
+                    choice_array = np.zeros(shape_zyx, dtype=np.int8)
+                #go through each object, obtain coordinates, and set pixel value to the label value
+                    for object in selected_objects:
+                        zcoords, ycoords, xcoords = object.coords[:, 0], object.coords[:, 1], object.coords[:, 2]
+                        choice_array[zcoords, ycoords, xcoords] = 1
+                        #write the object into mrc.gz file then reset choice array to 0
+                        out_path = os.path.join(out_dir, f'TS_{tomo_id}_obj{object.label}.mrc') #could change this to mrc.gz -> for the purpsoe of doing membrain, will leave it as mrc - will change to give user an option
+                        with mrcfile.new(out_path, overwrite=True) as new_file:
+                            new_file.set_data(choice_array)
+                            new_file.voxel_size = pix_size
+                        choice_array = np.zeros(shape_zyx, dtype=np.int8) #reset array for next object
+                    pbar.update(1)
+            print(f'\n\nAll selected objects have been written to mrc files in {output_directory}!')
+
+        return None
     else:
         #if write_selections is true
         #go through each segmentation file in the list
