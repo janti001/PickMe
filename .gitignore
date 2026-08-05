@@ -15,3 +15,4 @@ CLAUDE.md
 src/PickMe/pickme.code-workspace
 graphify-out/*
 uv.lock
+docs/*
