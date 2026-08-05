@@ -12,9 +12,6 @@ dependencies:
   - matplotlib
   - starfile
   - mrcfile
-  - napari
-  - napari-mrcfile-reader
-  - napari-skimage
   - scikit-image
   - seaborn
   - plotly
@@ -23,14 +20,23 @@ dependencies:
 
   # Keep the Qt/PyQt GUI stack in conda-forge.
   # Installing these through pip can mix incompatible Qt libraries.
-  - pyqt6
-  - qt6-main
-  - xcb-util
-  - xcb-util-image
-  - xcb-util-keysyms
-  - xcb-util-renderutil
-  - xcb-util-wm
-  - libxkbcommon
+  #
+  # These four are pinned tightly and deliberately. `choose_objects` drives
+  # the napari-skimage Regionprops widget through its Qt widget tree, which is
+  # private API, so an unconstrained minor upgrade can break object selection
+  # without raising an error. Keep these in step with the ranges in
+  # pyproject.toml and SUPPORTED_VERSIONS in src/PickMe/gui/napari_compat.py.
+  - napari >=0.7.0,<0.8
+  - napari-skimage >=0.6.0,<0.7
+  - pyqt6 >=6.9,<6.12
+  - qt6-main >=6.9,<6.12
+
+  # The X11 libraries (xcb-util*, libxkbcommon) are NOT listed here on
+  # purpose. conda-forge only ships them for Linux, so naming them directly
+  # makes this file unsolvable on macOS. qt6-main already pulls in the right
+  # ones for whichever platform you are installing on. If the GUI still fails
+  # to open a window after a clean install, that is a display problem rather
+  # than a packaging problem - see docs/gui-setup.md.
 
   # Install this local package without letting pip replace conda's Qt stack.
   - pip:

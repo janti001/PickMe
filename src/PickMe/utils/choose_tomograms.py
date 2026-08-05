@@ -32,7 +32,7 @@ def _format_tomogram_choices(files, max_visible=40):
     return '\n'.join(lines)
 
 
-def choose_tomograms(segmentation_directory, caller=None):
+def choose_tomograms(segmentation_directory, caller=None, non_interactive=False):
     '''
     List tomogram files in a directory, with an optional interactive filter.
 
@@ -52,6 +52,11 @@ def choose_tomograms(segmentation_directory, caller=None):
             - ``"convert"``: matches ``*.mrc`` instead, for the
               `decompress` pipeline stage, which operates on raw `.mrc`
               tomogram files rather than segmentations.
+        non_interactive (bool, optional): If True, skip the prompts
+            entirely and return every matched file. This is what lets
+            `filter_objects` and `convert` run under a batch scheduler
+            (Slurm, SGE), where there is no terminal attached and
+            `input()` would raise `EOFError`. Defaults to False.
 
     Returns:
         list[str]: File paths matching the glob pattern. If the user opts
@@ -61,18 +66,23 @@ def choose_tomograms(segmentation_directory, caller=None):
         unfiltered.
 
     Note:
-        Prompts interactively via `input()`: first a yes/no question
-        (re-asked until answered ``y``/``yes``/``n``/``no``), and if yes,
-        a follow-up prompt asking for specific tomogram number IDs
-        (parsed out of the response with a digit regex, e.g.
-        ``"1007 1012"``). The available choices are printed to stdout via
-        :func:`_format_tomogram_choices` before that second prompt.
+        Unless `non_interactive` is set, prompts interactively via
+        `input()`: first a yes/no question (re-asked until answered
+        ``y``/``yes``/``n``/``no``), and if yes, a follow-up prompt asking
+        for specific tomogram number IDs (parsed out of the response with
+        a digit regex, e.g. ``"1007 1012"``). The available choices are
+        printed to stdout via :func:`_format_tomogram_choices` before that
+        second prompt.
     '''
     #not sure which one of the two of these to use
     #first one assumes that the segmentation software that users use will leave a segment in the file name
     files = glob.glob(os.path.join(segmentation_directory, '*segment*'))
     if caller == 'convert':
         files = glob.glob(os.path.join(segmentation_directory, '*.mrc'))
+    #under --non-interactive there is nobody to narrow the list, so take all of them
+    if non_interactive:
+        print(f'Non-interactive mode: processing all {len(files)} matched tomogram(s).')
+        return files
     ask_user = input(f'Are there specific tomograms you want to process (y/n)?')
     while ask_user.lower() not in ['y', 'yes', 'n', 'no']:
         print('Answer must be yes or no!')

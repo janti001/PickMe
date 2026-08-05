@@ -15,14 +15,28 @@ dependencies=[
 	'matplotlib',
 	'starfile',
 	'mrcfile',
-	'napari',
-	'napari-mrcfile-reader',
-	'napari-skimage',
 	'scikit-image',
 	'seaborn',
 	'plotly',
 	'tqdm',
-	'scipy'
+	'scipy',
+
+	# --- GUI stack (napari + Qt) -------------------------------------------
+	# These are pinned much more tightly than the rest. `choose_objects`
+	# drives the napari-skimage Regionprops widget by reaching into its Qt
+	# widget tree (see src/PickMe/gui/napari_compat.py), so a single minor
+	# release of either package can silently break object selection. The
+	# ranges below are the combination PickMe is tested against; keep them in
+	# step with SUPPORTED_VERSIONS in gui/napari_compat.py and with
+	# PickMe.yml.
+	#
+	# NOTE: conda-forge, not pip, is the supported install path for the GUI
+	# on Linux/WSL/HPC - pip wheels can mix incompatible Qt libraries. See
+	# docs/gui-setup.md.
+	'napari>=0.7.0,<0.8',
+	'napari-skimage>=0.6.0,<0.7',
+	'qtpy>=2.4,<3',
+	'PyQt6>=6.9,<6.12',
 	]
 
 classifiers = [

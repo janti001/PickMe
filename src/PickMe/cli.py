@@ -1,6 +1,15 @@
 import argparse
 
 
+#Four of the five subcommands ask the user questions with input(). Under a batch
+#scheduler (Slurm, SGE) there is no terminal attached, so those prompts raise
+#EOFError and the job dies before doing any work. --non-interactive takes the
+#documented default for every prompt instead. See docs/gui-setup.md.
+NON_INTERACTIVE_HELP = (
+    'Skip all interactive prompts and take the default answer, so the job can '
+    'run unattended under a batch scheduler (e.g. Slurm). '
+)
+
 
 # --- Building CLI parser
 def build_parser():
@@ -27,7 +36,11 @@ def build_parser():
     object_extract_parser.add_argument('--filter', required=False,
                                        type=str,
                                        help='Choose method for filtering objects. Default: Max-Volume normalisation')
-    
+
+    object_extract_parser.add_argument('--non-interactive', required=False,
+                                       action='store_true',
+                                       help=NON_INTERACTIVE_HELP + 'Here: process every segmentation file found.')
+
     # --------------------------------
     # Subcommand 2: Choosing objects
     # --------------------------------
@@ -48,7 +61,10 @@ def build_parser():
     choice_parser.add_argument('--write-selections', required = False,
                                action='store_true',
                                help='If users want to write selected objects as their own mrc files, in a subdirectory named by the tomogram ID, they can use this flag. By default, they are all written to the same mrc file.')
-    
+    choice_parser.add_argument('--non-interactive', required=False,
+                               action='store_true',
+                               help=NON_INTERACTIVE_HELP + 'Here: the napari viewer is never opened, since picking objects visually needs a display that batch nodes do not have. See docs/gui-setup.md.')
+
     # --------------------------------
     # Subcommand 3: Particle extraction
     # --------------------------------
@@ -83,6 +99,9 @@ def build_parser():
     decompress_parser.add_argument('--output-dir', required=False,
                                    type=str,
                                    help='Pipeline output root. Defaults to ./outputs in the directory where PickMe is run.')
+    decompress_parser.add_argument('--non-interactive', required=False,
+                                   action='store_true',
+                                   help=NON_INTERACTIVE_HELP + 'Here: decompress every file found.')
 
 
 
@@ -100,6 +119,9 @@ def build_parser():
     convert_parser.add_argument('--data-type', required = False,
                                 type = str,
                                 help = 'The data type you want to convert to. For example, float32 or int16. [DEFAULT: float32]')
+    convert_parser.add_argument('--non-interactive', required=False,
+                                action='store_true',
+                                help=NON_INTERACTIVE_HELP + 'Here: convert every .mrc file found.')
     return parser
     
 
@@ -115,7 +137,8 @@ def main():
 
         filter_objects(input_dir=args.input_dir,
                         filter_choice=args.filter,
-                        output_dir=args.output_dir)
+                        output_dir=args.output_dir,
+                        non_interactive=args.non_interactive)
         
     if args.job == 'choose_objects':
         from PickMe.main import choose_object
@@ -124,7 +147,8 @@ def main():
                       segmentation_dir=args.segmentation_dir,
                       input_job=args.input_job,
                       output_dir=args.output_dir,
-                      write_selections=args.write_selections)
+                      write_selections=args.write_selections,
+                      non_interactive=args.non_interactive)
     if args.job == 'particle_extraction':
         from PickMe.main import particle_extract
 
@@ -138,11 +162,13 @@ def main():
 
         decompress(input_dir=args.input_dir,
                    input_job=args.input_job,
-                   output_dir=args.output_dir)
+                   output_dir=args.output_dir,
+                   non_interactive=args.non_interactive)
     if args.job == 'convert':
         from PickMe.main import convert
         
         convert(input_dir=args.input_dir,
                 output_dir=args.output_dir,
-                data_type=args.data_type)
+                data_type=args.data_type,
+                non_interactive=args.non_interactive)
     return None

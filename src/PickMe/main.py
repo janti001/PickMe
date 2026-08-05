@@ -44,7 +44,7 @@ def _format_job_number(job_number):
     return f'{int(job_number):03d}'
 
 # --- Object extraction and filtering ---
-def filter_objects(input_dir: str, filter_choice=None, output_dir=None):
+def filter_objects(input_dir: str, filter_choice=None, output_dir=None, non_interactive=False):
     """Extract labeled objects from segmentation files and write filtered volumes.
 
     For each segmentation file found under `input_dir`, extracts labeled
@@ -63,6 +63,11 @@ def filter_objects(input_dir: str, filter_choice=None, output_dir=None):
         output_dir (str, optional): Root directory for pipeline outputs. Job
             output is written to `<output_dir>/filter/jobNNN`. Defaults to
             `./outputs` when None.
+        non_interactive (bool, optional): If True, skip the "are there
+            specific tomograms you want to process?" prompt and process
+            every segmentation file found. Set this when running under a
+            batch scheduler, where there is no terminal for `input()` to
+            read from. Defaults to False.
 
     Returns:
         None: This function does not return a value. Filtered segmentations
@@ -77,7 +82,7 @@ def filter_objects(input_dir: str, filter_choice=None, output_dir=None):
     # --- Making output directories
     output_directory = utils.check_make_dir(directory=output_dir, job_name='filter')
     #Get all objects 
-    files = utils.choose_tomograms(segmentation_directory=input_dir)
+    files = utils.choose_tomograms(segmentation_directory=input_dir, non_interactive=non_interactive)
     # --- Begin processing
     with tqdm(total=len(files), desc='Running Extraction', unit='Tomogram', leave=True) as pbar:
         for file in files:
@@ -136,13 +141,14 @@ def filter_objects(input_dir: str, filter_choice=None, output_dir=None):
 
 # --- Object choice with Napari plugin --- 
 
-def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output_dir=None, write_selections=False):
+def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output_dir=None, write_selections=False, non_interactive=False):
     """Let a user pick which filtered objects to keep, per tomogram.
 
-    Always begins by prompting interactively via `input()`:
-    "Are there any objects which you would like to select (y/n)?" The answer
-    determines which path runs, and the user can only choose from objects that
-    already passed the volume-based knee filter in `filter_objects`:
+    Unless `non_interactive` is set, begins by prompting interactively via
+    `input()`: "Are there any objects which you would like to select (y/n)?"
+    The answer determines which path runs, and the user can only choose from
+    objects that already passed the volume-based knee filter in
+    `filter_objects`:
 
     - **yes**: Opens a napari viewer (with the napari-skimage Regionprops
       widget) loaded with each tomogram and its filtered segmentation, and
@@ -185,26 +191,37 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
             out as its own uncompressed `.mrc` file (voxels set to 1) instead
             of one combined gzip-compressed segmentation per tomogram.
             Defaults to False.
+        non_interactive (bool, optional): If True, skip the prompt and take
+            the "no" path — the napari viewer is never opened. This is the
+            only sensible batch behaviour: picking objects visually needs a
+            display, which batch nodes do not have (see docs/gui-setup.md).
+            Defaults to False.
 
     Returns:
         None: This function does not return a value; results are written to
             disk (or left untouched) as described above.
 
     Note:
-        This function always prompts via `input()` before doing anything
-        else. When the user answers "yes", it also lazily imports `napari`
-        and `qtpy` (only inside that branch, since they are optional GUI
-        dependencies) and blocks until the napari window is closed.
+        Unless `non_interactive` is set, this function prompts via `input()`
+        before doing anything else. When the user answers "yes", it also
+        lazily imports `napari` and `qtpy` (only inside that branch, since
+        they are optional GUI dependencies) and blocks until the napari
+        window is closed.
     """
     #ask user if they want specific objects
-    ask_user = input('Are there any objects which you would like to select (y/n)?')
-    while ask_user.lower() not in ['y', 'yes', 'n', 'no']:
-        print('Answer must be yes or no!')
-        ask_user = input('Which objects of interest would you like to select from the filtered set for processing?')
-    if ask_user.lower() in ['y', 'yes']:
-        ask_user = True
-    elif ask_user.lower() in ['n', 'no']:
+    #under --non-interactive there is no display to open napari onto, so take the "no" path
+    if non_interactive:
+        print('Non-interactive mode: skipping napari object selection.')
         ask_user = False
+    else:
+        ask_user = input('Are there any objects which you would like to select (y/n)?')
+        while ask_user.lower() not in ['y', 'yes', 'n', 'no']:
+            print('Answer must be yes or no!')
+            ask_user = input('Which objects of interest would you like to select from the filtered set for processing?')
+        if ask_user.lower() in ['y', 'yes']:
+            ask_user = True
+        elif ask_user.lower() in ['n', 'no']:
+            ask_user = False
 
     #--- setting up directories and data structures
     #getting directories sorted so we can dispatch outputs
@@ -241,8 +258,17 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
 
     if ask_user == True:
         #Imports - remove it from top level as these are only needed if user wants to select specific objects and we want to avoid unnecessary imports if they don't
-        from qtpy.QtWidgets import QAbstractItemView, QTableView, QTableWidget, QPushButton
+        from qtpy.QtWidgets import QAbstractItemView
         import napari
+
+        from .gui import napari_compat
+
+        #Check the GUI stack before opening a window. napari-skimage is driven
+        #through private Qt internals (see gui/napari_compat.py), so a version
+        #outside the pinned range is reported here rather than showing up later
+        #as an empty selection.
+        napari_compat.check_gui_versions()
+        napari_compat.check_display()
 
         #instantiate the napari viewer
         viewer = napari.Viewer()
@@ -269,40 +295,19 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
 
 
         # ── connect to the table after the user clicks Analyse ──────────────────────────
-        dock_widget, plugin_widget = viewer.window.add_plugin_dock_widget(
-            plugin_name='napari-skimage',
-            widget_name='Regionprops (labels)'
-        )
-        def _find_table():
-            """Search the plugin widget first, then all viewer dock widgets."""
-            # Search inside the plugin widget's native Qt widget
-            for cls in (QTableView, QTableWidget):
-                table = plugin_widget.native.findChild(cls)
-                if table is not None:
-                    print(f"[PickMe] Found table in plugin widget: {cls.__name__}")
-                    return table
-
-            # Fallback: search every dock widget napari has registered
-            for dock_name, dw in viewer.window._dock_widgets.items(): #changed from _dock_widgets to dock_widgets  
-                native = dw.native if hasattr(dw, 'native') else dw
-                for cls in (QTableView, QTableWidget):
-                    table = native.findChild(cls)
-                    if table is not None:
-                        print(f"[PickMe] Found table in dock widget: '{dock_name}' ({cls.__name__})")
-                        return table
-
-            return None
+        #Raises NapariCompatError, naming the expected version, if the widget has moved.
+        dock_widget, plugin_widget = napari_compat.add_regionprops_widget(viewer)
 
         _connected_table = None   # hold a reference so we can reconnect on subsequent Runs
 
         def _on_run_clicked(): #run button - "analyse" in the naari-skimage plugin
             nonlocal _connected_table
 
-            table = _find_table()   # no argument needed now
+            table = napari_compat.find_regionprops_table(viewer, plugin_widget)
             if table is None:
                 print("[PickMe] Could not find regionprops table — try clicking Run first, or inspect dock widgets.")
                 # Debug helper: print what dock widgets exist
-                print(f"[PickMe] Current dock widgets: {list(viewer.window._dock_widgets.keys())}") #changed from _dock_widgets to dock_widgets
+                print(f"[PickMe] Current dock widgets: {napari_compat.dock_widget_names(viewer)}")
                 return
 
             if _connected_table is not None and _connected_table is not table:
@@ -342,7 +347,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
             print(f"[PickMe] {tomo_id} → selected labels: {selected_objects[tomo_id]}")
 
         # Find the Run button and connect to it
-        run_button = plugin_widget.native.findChild(QPushButton)
+        run_button = napari_compat.find_run_button(plugin_widget)
         if run_button is not None:
             run_button.clicked.connect(_on_run_clicked)
         else:
@@ -650,7 +655,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
 
         
 
-def decompress(input_dir=None, input_job=None, output_dir=None):
+def decompress(input_dir=None, input_job=None, output_dir=None, non_interactive=False):
     """Decompress gzip/bzip2 MRC segmentations for viewing in Chimera/ChimeraX.
 
     This package writes segmentation outputs in compressed MRC formats (see
@@ -673,6 +678,10 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
         output_dir (str, optional): Root directory for pipeline outputs. Job
             output is written to `<output_dir>/decompress/jobNNN`. Defaults
             to None (`./outputs`).
+        non_interactive (bool, optional): If True, skip the prompt and
+            decompress every file found. Set this when running under a batch
+            scheduler, where there is no terminal for `input()` to read from.
+            Defaults to False.
 
     Returns:
         None: This function does not return a value; decompressed files are
@@ -682,8 +691,9 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
         RuntimeError: If both `input_dir` and `input_job` are None.
 
     Note:
-        This function always prompts via `input()` to ask which tomograms, if
-        any, decompression should be restricted to.
+        Unless `non_interactive` is set, this function prompts via `input()`
+        to ask which tomograms, if any, decompression should be restricted
+        to.
     """
     if input_dir is None and input_job is None:
         raise RuntimeError('A directory or Job number must be provided for this job')
@@ -701,11 +711,16 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
     
     print(utils._format_tomogram_choices(files))
     #we have list of all files, but perhas user wants to only decompress a select few:
-    ask = input('Are there any specific tomograms you want to decompress? (y/n)')
-
-    while ask not in ['y', 'n']:
-        print('Must be yes or no!')
+    #under --non-interactive there is nobody to narrow the list, so decompress all of them
+    if non_interactive:
+        print(f'Non-interactive mode: decompressing all {len(files)} file(s).')
+        ask = 'n'
+    else:
         ask = input('Are there any specific tomograms you want to decompress? (y/n)')
+
+        while ask not in ['y', 'n']:
+            print('Must be yes or no!')
+            ask = input('Are there any specific tomograms you want to decompress? (y/n)')
     if ask == 'y':
         available_to_choose = [f"TS_{re.findall(r'\d+', file.split('/')[-1])}" for file in files]
         print(f'Available tomograms to choose:\n{available_to_choose}')
@@ -748,7 +763,7 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
 
     return None
 
-def convert(input_dir, output_dir=None, data_type = None):
+def convert(input_dir, output_dir=None, data_type = None, non_interactive=False):
     """Convert tomogram reconstruction(s) to float32 MRC files.
 
     Reads each input tomogram and writes a converted copy named
@@ -767,6 +782,12 @@ def convert(input_dir, output_dir=None, data_type = None):
             (e.g. `np.float32`, `np.int16`), but this parameter is currently
             **not honoured** — regardless of what is passed, output is always
             cast to `numpy.float32`. Defaults to None.
+        non_interactive (bool, optional): If True, skip the "are there
+            specific tomograms you want to process?" prompt and convert every
+            `.mrc` file found. Only has an effect when `input_dir` is a
+            directory. Set this when running under a batch scheduler, where
+            there is no terminal for `input()` to read from. Defaults to
+            False.
 
     Returns:
         None: This function does not return a value; converted files are
@@ -786,7 +807,7 @@ def convert(input_dir, output_dir=None, data_type = None):
     if os.path.isfile(input_dir):
         file_list = [input_dir]
     elif os.path.isdir(input_dir):
-        file_list = utils.choose_tomograms(input_dir, caller='convert')
+        file_list = utils.choose_tomograms(input_dir, caller='convert', non_interactive=non_interactive)
         file_list = [file for file in file_list if file.endswith('.mrc')] #this assumes that the tomograms are in mrc format - we can change this to be more flexible if needed
 
     else:

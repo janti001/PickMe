@@ -45,12 +45,14 @@ a volume-based knee filter, and writes the surviving objects back out.
 | `--input-dir` | str (path) | Yes | — | Directory containing the segmentation files to process. |
 | `--output-dir` | str (path) | No | `./outputs` | Overrides the pipeline output root (see [pipeline.md](pipeline.md#output-root-and-job-numbering)). |
 | `--filter` | str | No | `None` | Accepted but currently has no effect — see [Known limitations](#known-limitations). |
+| `--non-interactive` | flag | No | `False` | Skip the prompt below and process every matched file. Use this in batch scripts. |
 
 **File selection.** Inside `--input-dir`, PickMe looks for files matching
 `*segment*` (i.e. the word "segment" must appear somewhere in the filename).
 Files that don't match are silently ignored.
 
-**Interactive prompt.** Before doing anything else, PickMe asks:
+**Interactive prompt.** Unless `--non-interactive` is set, PickMe asks before
+doing anything else:
 
 ```
 Are there specific tomograms you want to process (y/n)?
@@ -60,8 +62,9 @@ Are there specific tomograms you want to process (y/n)?
 - **y** — it prints the matched files and asks you to type the numeric
   tomogram IDs you want (e.g. `1007 1012`), then processes only those.
 
-This prompt fires every time — there is currently no flag to skip it, so
-`extract_objects` cannot be driven from a fully unattended batch script.
+With `--non-interactive` the prompt is skipped entirely and every matched file
+is processed, so this subcommand can be driven from an unattended batch script.
+See [gui-setup.md](gui-setup.md#3-running-the-non-gui-stages-unattended).
 
 **Outputs**, written to `<output_root>/filter/jobNNN/`:
 - `<tomo>_filtered.mrc.gz` — one gzip-compressed mrc per tomogram, containing
@@ -97,6 +100,7 @@ that produces the input `particle_extraction` normally expects.
 | `--output-dir` | str (path) | No | `./outputs` | Overrides the pipeline output root. |
 | `--input-job` | int | No | `None` | Use a specific `filter` job number as the segmentation source, e.g. `1` selects `job001`. |
 | `--write-selections` | flag | No | `False` | Write each kept object to its own uncompressed `.mrc` file instead of one combined file per tomogram. |
+| `--non-interactive` | flag | No | `False` | Skip the prompt below and take the **n** path — napari is never opened. Picking objects visually needs a display, which batch nodes do not have. |
 
 Note `--input-dir` here is **not** the segmentation directory — it's the
 tomogram volumes that get shown side-by-side with the segmentation in napari.
@@ -116,7 +120,7 @@ Tomogram IDs are matched between `--input-dir` and the resolved segmentation
 files by splitting each filename on `_` and comparing the second field (e.g.
 `TS_1007...` → `1007`). Only tomograms present on both sides end up processed.
 
-**Interactive prompt.** Always asked first, regardless of any flag:
+**Interactive prompt.** Asked first, unless `--non-interactive` is set:
 
 ```
 Are there any objects which you would like to select (y/n)?
@@ -135,9 +139,15 @@ Are there any objects which you would like to select (y/n)?
     written out as its own file (see Outputs below) — useful for exporting
     membranes without hand-picking any of them.
 
-This prompt makes `choose_objects` unsuitable for a non-interactive batch
-script in the `y` path (it blocks on the napari GUI); the `n` path is safe to
-script only if you also hard-code the answer via stdin.
+The **y** path can never run in a batch job: it blocks on a napari window, and
+a compute node has no display to open one on. That is a workflow constraint,
+not a bug — run `choose_objects` on a machine with a display (or an
+`ssh -X` / interactive session) and the other stages on the cluster. See
+[gui-setup.md](gui-setup.md#hpc-clusters).
+
+`--non-interactive` forces the **n** path, so `choose_objects` can be scripted
+when combined with `--write-selections` to export every filtered object without
+hand-picking.
 
 **Outputs**, written to `<output_root>/choose/jobNNN/`:
 - Default (no `--write-selections`, objects were picked in napari):
@@ -223,6 +233,7 @@ output of any pipeline stage, not just the latest one.
 | `--input-dir` | str (path) | One of `--input-dir` / `--input-job` required | `None` | Directory containing the `.mrc.gz` / `.mrc.bz2` files to decompress. |
 | `--input-job` | int | One of `--input-dir` / `--input-job` required | `None` | Job number to pull files from (any stage). Takes priority over `--input-dir` if both are given. |
 | `--output-dir` | str (path) | No | `./outputs` | Overrides the pipeline output root. |
+| `--non-interactive` | flag | No | `False` | Skip the prompt below and decompress every resolved file. Use this in batch scripts. |
 
 **Input resolution:**
 
@@ -232,7 +243,8 @@ output of any pipeline stage, not just the latest one.
 2. else `--input-dir <dir>` is given → use every `<dir>/*.mrc*` file.
 3. neither is given → raises `RuntimeError` before anything else runs.
 
-**Interactive prompt.** After resolving the file list, PickMe always asks:
+**Interactive prompt.** After resolving the file list, and unless
+`--non-interactive` is set, PickMe asks:
 
 ```
 Are there any specific tomograms you want to decompress? (y/n)
@@ -242,8 +254,8 @@ Are there any specific tomograms you want to decompress? (y/n)
 - **y** — it lists the tomograms found and asks you to type the numeric IDs
   you want; only those are decompressed.
 
-This makes `decompress` unsafe to call from a non-interactive script without
-also scripting the stdin answer.
+With `--non-interactive` the prompt is skipped and every resolved file is
+decompressed, making this subcommand safe to call from a batch script.
 
 **Outputs**, written to `<output_root>/decompress/jobNNN/`:
 - `TS_<id>_decompressed.mrc` — one uncompressed mrc per selected tomogram.
@@ -266,22 +278,24 @@ picky about voxel dtype.
 | `--input-dir` | str (path) | Yes | — | Directory (or single file) of tomograms to convert. |
 | `--output-dir` | str (path) | No | `./outputs` | Overrides the pipeline output root. |
 | `--data-type` | str | No | `None` (documented as defaulting to float32) | **Accepted but ignored** — see below. |
+| `--non-interactive` | flag | No | `False` | Skip the prompt below and convert every `.mrc` file found. Use this in batch scripts. |
 
 **File selection.** If `--input-dir` points at a single file, only that file
 is converted. If it points at a directory, PickMe globs for tomograms inside
 it (interactively — see below) and then keeps only the ones ending in
 `.mrc`.
 
-**Interactive prompt.** When `--input-dir` is a directory (not a single
-file), the same tomogram-selection prompt used by `extract_objects` fires:
+**Interactive prompt.** When `--input-dir` is a directory (not a single file),
+and unless `--non-interactive` is set, the same tomogram-selection prompt used
+by `filter_objects` fires:
 
 ```
 Are there specific tomograms you want to process (y/n)?
 ```
 
 Answer `n` to convert everything found, or `y` to type specific numeric IDs.
-This means `convert` is also not safe to drive from an unattended script
-unless the input path is a single file.
+With `--non-interactive`, everything found is converted without asking — as is
+already the case when `--input-dir` points at a single file.
 
 **Known limitation.** `--data-type` is parsed but never used — `convert()`
 always casts to `numpy.float32` and always sets the output voxel size to

@@ -56,7 +56,7 @@ This is where the power of PickMe comes from: being used in conjunction with oth
 
 ### Recommended: conda environment file
 
-The repository ships a `PickMe.yml` conda environment file, and **this is the supported install route**. It deliberately installs the Qt/GUI stack (`pyqt6`, `qt6-main`, the `xcb-util*` libraries, `libxkbcommon`) through conda-forge, because installing those through pip tends to mix incompatible Qt libraries and break napari — which is the part of PickMe you need for `choose_objects`.
+The repository ships a `PickMe.yml` conda environment file, and **this is the only supported install route for the GUI**. It deliberately installs the Qt/GUI stack (`pyqt6`, `qt6-main`, and the X11 libraries those pull in) through conda-forge, because installing those through pip tends to mix incompatible Qt libraries and break napari — which is the part of PickMe you need for `choose_objects`.
 
 ```bash
 git clone https://github.com/janti001/PickMe.git
@@ -85,13 +85,19 @@ conda activate pickme
 pip install PickMe-EM
 ```
 
-Be aware that this route installs napari's Qt dependencies through pip, which is the setup that most often goes wrong. If napari fails to launch, use the conda route above.
+Be aware that this route installs napari's Qt dependencies through pip, which is the setup that most often goes wrong. It is fine if you are scripting the non-GUI stages; if napari fails to launch, use the conda route above.
+
+### WSL and HPC
+
+A successful install does not guarantee a napari window will open — Qt still needs a display, and WSL and HPC compute nodes often do not have one. **[docs/gui-setup.md](docs/gui-setup.md)** covers what each platform needs, including the fact that plain `sbatch` jobs cannot run `choose_objects` at all, and how to split the pipeline around that. Start there if the GUI will not open.
+
+For running the non-GUI stages unattended, every subcommand that prompts also accepts `--non-interactive`.
 
 ### Dependencies
 
 Runtime dependencies are: `numpy`, `pandas`, `matplotlib`, `starfile`, `mrcfile`, `napari`, `napari-skimage`, `scikit-image`, `seaborn`, `plotly`, `tqdm`, `scipy`.
 
-Version requirements are deliberately not listed here so this file cannot go stale — `pyproject.toml` and `PickMe.yml` are the source of truth.
+Version requirements are deliberately not listed here so this file cannot go stale — `pyproject.toml` and `PickMe.yml` are the source of truth. Note that the napari/Qt packages are pinned much more tightly than the rest, for the reasons explained in [docs/gui-setup.md](docs/gui-setup.md#what-is-pinned-and-why).
 
 ---
 
