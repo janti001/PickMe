@@ -1,4 +1,4 @@
-name: pickme
+name: PickMe
 channels:
   - conda-forge
   - nodefaults
