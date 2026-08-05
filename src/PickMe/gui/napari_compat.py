@@ -292,7 +292,7 @@ def find_regionprops_table(viewer, plugin_widget):
                 )
                 return table
 
-    return None
+    return table
 
 
 def find_run_button(plugin_widget):
@@ -312,3 +312,24 @@ def find_run_button(plugin_widget):
     from qtpy.QtWidgets import QPushButton
 
     return plugin_widget.native.findChild(QPushButton)
+
+def _find_table(viewer, plugin_widget):
+    """Search the plugin widget first, then all viewer dock widgets."""
+    # Search inside the plugin widget's native Qt widget
+    from qtpy.QtWidgets import QTableView, QTableWidget
+    for cls in (QTableView, QTableWidget):
+        table = plugin_widget.native.findChild(cls)
+        if table is not None:
+            print(f"[PickMe] Found table in plugin widget: {cls.__name__}")
+            return table
+
+    # Fallback: search every dock widget napari has registered
+    for dock_name, dw in viewer.window._dock_widgets.items(): #changed from _dock_widgets to dock_widgets  
+        native = dw.native if hasattr(dw, 'native') else dw
+        for cls in (QTableView, QTableWidget):
+            table = native.findChild(cls)
+            if table is not None:
+                print(f"[PickMe] Found table in dock widget: '{dock_name}' ({cls.__name__})")
+                return table
+
+    return None
