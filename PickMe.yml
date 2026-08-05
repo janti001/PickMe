@@ -40,5 +40,4 @@ dependencies:
 
   # Install this local package without letting pip replace conda's Qt stack.
   - pip:
-      - --no-deps
-      - -e .
+      - "--no-deps -e ."
