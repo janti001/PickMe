@@ -245,7 +245,10 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         filtered_seg_list = list(path_to_outputs.glob(f'**/job{input_job}/*.mrc*'))
         filtered_seg_list = [str(f) for f in filtered_seg_list]
     elif segmentation_dir is not None:
-        filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc*') 
+        if os.path.isdir(segmentation_dir):
+            filtered_seg_list = glob.glob(f'{segmentation_dir}/*.mrc*') 
+        elif os.path.isfile(segmentation_dir):
+            filtered_seg_list = [segmentation_dir]
     
     #create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
     data_dict={} #this could be changed to a class
