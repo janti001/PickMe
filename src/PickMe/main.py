@@ -20,7 +20,7 @@ from .config import mgraph_suffix, star_suffix
 """Pipeline functions for the PickMe-EM CLI.
 
 This module holds the high-level pipeline functions that ``cli.py`` dispatches
-to for each subcommand: ``extract_and_store`` (``extract_objects``),
+to for each subcommand: ``filter_objects`` (``filter_objects``),
 ``choose_object`` (``choose_objects``), ``particle_extract``
 (``particle_extraction``), ``decompress``, and ``convert``. Each function sets
 up its own job output directory under ``<output_root>/<job_name>/jobNNN`` (job
@@ -654,7 +654,7 @@ def decompress(input_dir=None, input_job=None, output_dir=None):
     """Decompress gzip/bzip2 MRC segmentations for viewing in Chimera/ChimeraX.
 
     This package writes segmentation outputs in compressed MRC formats (see
-    `extract_and_store`, `choose_object`), which most viewers cannot open
+    `filter_object`, `choose_object`), which most viewers cannot open
     directly. This function decompresses a set of them back to plain `.mrc`.
     Users can call it to decompress any selected tomogram from any part of
     the pipeline, not strictly in a linear fashion. It always prompts

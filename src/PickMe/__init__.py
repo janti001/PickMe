@@ -7,7 +7,7 @@ __all__ = [
     'filter',
     'plotting',
     'sampling',
-    'extract_and_store',
+    'filter_objects',
     'choose_object',
     'particle_extract',
     'decompress',
@@ -15,7 +15,7 @@ __all__ = [
 
 _SUBMODULES = {'utils', 'angles', 'filter', 'plotting', 'sampling'}
 _PIPELINE_FUNCTIONS = {
-    'extract_and_store',
+    'filter_objects',
     'choose_object',
     'particle_extract',
     'decompress',
@@ -23,7 +23,7 @@ _PIPELINE_FUNCTIONS = {
 
 if TYPE_CHECKING:
     from . import angles, filter, plotting, sampling, utils
-    from .main import choose_object, decompress, extract_and_store, particle_extract #can just write this line and it would be fine
+    from .main import choose_object, decompress, filter_objects, particle_extract #can just write this line and it would be fine
 
 
 def __getattr__(name):
@@ -33,10 +33,10 @@ def __getattr__(name):
         return module
 
     if name in _PIPELINE_FUNCTIONS:
-        from .main import choose_object, decompress, extract_and_store, particle_extract
+        from .main import choose_object, decompress, filter_objects, particle_extract
 
         exports = {
-            'extract_and_store': extract_and_store,
+            'filter_objects': filter_objects,
             'choose_object': choose_object,
             'particle_extract': particle_extract,
             'decompress': decompress,
