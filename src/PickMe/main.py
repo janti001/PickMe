@@ -258,7 +258,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
 
     if ask_user == True:
         #Imports - remove it from top level as these are only needed if user wants to select specific objects and we want to avoid unnecessary imports if they don't
-        from qtpy.QtWidgets import QAbstractItemView
+        #(Qt itself is only touched inside gui/napari_compat.py.)
         import napari
 
         from .gui import napari_compat
@@ -284,84 +284,156 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         
         # --- Interfacing with napari to select objects of interest directly from napari
         # Maps  tomo_id -> set of selected label IDs
-        selected_objects: dict[str, set[int]] = {tomo_id: set() for tomo_id in data_dict}
+        selections: dict[str, set[int]] = {tomo_id: set() for tomo_id in data_dict}
 
-        def _active_tomo_id() -> str | None:
-            """Return the tomo_id of whichever labels layer is currently active."""
-            layer = viewer.layers.selection.active
-            if layer is not None and hasattr(layer, 'data') and '_segmentation' in layer.name:
+        def _analysed_tomo_id() -> str | None:
+            """Return the tomo_id of the labels layer the table describes.
+
+            Asks the plugin which layer it last analysed, rather than which
+            layer the viewer has active — the table's rows belong to the
+            analysed layer, and the active layer changes every time the user
+            clicks something else in the layer list.
+            """
+            layer = napari_compat.analysed_labels_layer(plugin_widget)
+            if layer is None:
+                layer = viewer.layers.selection.active  # fallback
+            if layer is not None and '_segmentation' in getattr(layer, 'name', ''):
                 return layer.name.replace('_segmentation', '') #this just ensures that we have the tomogram id - TS_xyxy
             return None
 
-
-        # ── connect to the table after the user clicks Analyse ──────────────────────────
+        # ── connect to the table after the user clicks Analyze ──────────────────────────
         #Raises NapariCompatError, naming the expected version, if the widget has moved.
         dock_widget, plugin_widget = napari_compat.add_regionprops_widget(viewer)
 
-        _connected_table = None   # hold a reference so we can reconnect on subsequent Runs
+        _connected_table = None   # hold a reference so we can reconnect on subsequent runs
+        _label_column = None      # which column of the table holds the label ID
 
-        def _on_run_clicked(): #run button - "analyse" in the naari-skimage plugin
-            nonlocal _connected_table
+        def _on_analysis_finished():
+            """Wire PickMe into the results table after each Analyze run."""
+            nonlocal _connected_table, _label_column
 
             table = napari_compat.find_regionprops_table(viewer, plugin_widget)
             if table is None:
-                print("[PickMe] Could not find regionprops table — try clicking Run first, or inspect dock widgets.")
+                print("[PickMe] Could not find the regionprops table — click Analyze first.")
                 # Debug helper: print what dock widgets exist
                 print(f"[PickMe] Current dock widgets: {napari_compat.dock_widget_names(viewer)}")
                 return
 
-            if _connected_table is not None and _connected_table is not table:
-                try:
-                    _connected_table.selectionModel().selectionChanged.disconnect(_on_selection_changed)
-                except RuntimeError:
-                    pass
-
-            _connected_table = table
-            table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-            table.selectionModel().selectionChanged.connect(_on_selection_changed)
-
-            headers = [table.model().headerData(i, 1) for i in range(table.model().columnCount())]
-            print(f"[PickMe] Table connected. Columns: {headers}")
-
-        def _on_selection_changed():
-            """Fired whenever the user clicks or deselects rows in the table."""
-            tomo_id = _active_tomo_id()
-            if tomo_id is None or _connected_table is None:
+            #The label column moves depending on which properties were ticked,
+            #because regionprops_table sorts its columns alphabetically.
+            _label_column = napari_compat.find_label_column(table)
+            headers = napari_compat.table_headers(table)
+            if _label_column is None:
+                print(
+                    "[PickMe] WARNING: no 'label' column in the results table "
+                    f"(columns: {headers}). Tick 'label' in the plugin's "
+                    'Properties list, then click Analyze again — selections '
+                    'cannot be matched to objects without it.'
+                )
                 return
 
-            selected_objects[tomo_id].clear()
-            seen_rows = set()
-            for index in _connected_table.selectedIndexes():
-                row = index.row()
-                if row in seen_rows:
-                    continue
-                seen_rows.add(row)
+            #Reconnect only when the table object itself changed; connecting
+            #twice to the same table would fire the handler twice per click.
+            if _connected_table is not table:
+                if _connected_table is not None:
+                    try:
+                        _connected_table.selectionModel().selectionChanged.disconnect(
+                            _on_selection_changed
+                        )
+                    except (RuntimeError, TypeError):
+                        pass
+                _connected_table = table
+                napari_compat.configure_table_selection(table)
+                table.selectionModel().selectionChanged.connect(_on_selection_changed)
 
-                # Label ID is typically in column 0 — verify from the print above
-                item = _connected_table.model().index(row, 0).data()
-                try:
-                    selected_objects[tomo_id].add(int(item))
-                except (TypeError, ValueError):
-                    pass
+            print(
+                f'[PickMe] Table connected for {_analysed_tomo_id()}. '
+                f"Columns: {headers} (label in column {_label_column}). "
+                'Click rows to choose objects; ctrl/cmd-click or shift-click '
+                'for several.'
+            )
 
-            print(f"[PickMe] {tomo_id} → selected labels: {selected_objects[tomo_id]}")
+        def _on_selection_changed(*_args):
+            """Fired whenever the user clicks or deselects rows in the table."""
+            tomo_id = _analysed_tomo_id()
+            if tomo_id is None or tomo_id not in selections or _connected_table is None:
+                return
+            if _label_column is None:
+                return
 
-        # Find the Run button and connect to it
-        run_button = napari_compat.find_run_button(plugin_widget)
-        if run_button is not None:
-            run_button.clicked.connect(_on_run_clicked)
+            if not napari_compat.table_is_alive(_connected_table):
+                #The viewer is closing — whatever was selected before the
+                #window went away is still the user's answer.
+                return
+
+            indexes = _connected_table.selectedIndexes()
+            if not indexes:
+                #Qt also fires an empty selection just before it repopulates or
+                #destroys the table, and at this instant that is indistinguishable
+                #from the user deselecting everything. Clearing now would throw
+                #away a selection they had already made, so re-check on the next
+                #event-loop tick, once the repopulation or teardown has finished.
+                napari_compat.defer(_confirm_deselection)
+                return
+
+            labels = set()
+            for row in {index.row() for index in indexes}:
+                label = napari_compat.read_label_cell(_connected_table, row, _label_column)
+                if label is not None:
+                    labels.add(label)
+
+            selections[tomo_id] = labels
+            print(f"[PickMe] {tomo_id} → selected labels: {sorted(labels)}")
+
+        def _confirm_deselection():
+            """Clear a tomogram's selection, but only if the user really did."""
+            tomo_id = _analysed_tomo_id()
+            if tomo_id is None or tomo_id not in selections or _connected_table is None:
+                return
+            if not napari_compat.table_is_alive(_connected_table):
+                return  # viewer closed — keep what was selected
+            if _connected_table.selectedIndexes():
+                return  # something is selected after all
+            if _connected_table.model().rowCount() == 0:
+                return  # the table was emptied, not deselected
+            if not selections[tomo_id]:
+                return  # nothing to clear, no need to say so
+            selections[tomo_id] = set()
+            print(f'[PickMe] {tomo_id} → selection cleared')
+
+        connected_via = napari_compat.connect_analysis_finished(
+            plugin_widget, _on_analysis_finished
+        )
+        if connected_via is None:
+            print(
+                '[PickMe] WARNING: could not connect to the plugin — no Analyze '
+                'button or `called` signal was found, so selections cannot be '
+                f'recorded. {napari_compat.DOCS_HINT}'
+            )
         else:
-            print("[PickMe] Warning: could not find Run button — call _on_run_clicked() manually after running regionprops.")
+            print(f'[PickMe] Listening for regionprops runs via the {connected_via}.')
+            print(
+                '[PickMe] In napari: pick the labels layer, tick at least '
+                "'label' under Properties, click Analyze, then select rows in "
+                'the Results Table. Close the viewer when you are done.'
+            )
 
         # ── launch ───────────────────────────────────────────────────────────────────
         napari.run()   # blocks here
 
         # ── post-GUI: filter out tomograms where nothing was selected ────────────────
-        final_selection = {tomo: labels for tomo, labels in selected_objects.items() if labels}
+        final_selection = {tomo: labels for tomo, labels in selections.items() if labels}
         print("\n=== Final selections ===")
+        if not final_selection:
+            print(
+                '  nothing was selected — no files will be written.\n'
+                "  To select objects: choose the labels layer, tick 'label' in "
+                'the plugin Properties list, click Analyze, then click rows in '
+                'the Results Table before closing the viewer.'
+            )
         for tomo, labels in final_selection.items():
             print(f"  {tomo}: {sorted(labels)}")
-        
+
 
 
         # --- Applying the selection and writing out files ---------------------
@@ -383,11 +455,11 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
                     objects_dict, _ = utils.object_extraction(segmentation)
 
                     # Filter to selected labels immediately — no need to store full_data
-                    selections = final_selection.get(tomo_id, set())
-                    selected_objects = [obj for obj in objects_dict.values() if obj.label in selections]
+                    chosen_labels = final_selection.get(tomo_id, set())
+                    chosen_objects = [obj for obj in objects_dict.values() if obj.label in chosen_labels]
 
-                    if selected_objects:
-                        final_data[tomo_id] = selected_objects
+                    if chosen_objects:
+                        final_data[tomo_id] = chosen_objects
 
                 except Exception as e:
                     print(f'Error with file: {tomo_id}\n{e}')

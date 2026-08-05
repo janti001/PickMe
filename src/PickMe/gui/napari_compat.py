@@ -257,10 +257,22 @@ def dock_widget_names(viewer):
 def find_regionprops_table(viewer, plugin_widget):
     """Locate the regionprops results table in the Qt widget tree.
 
-    Searches the plugin's own widget first, then every dock widget napari has
-    registered. Both are `findChild` scans rather than a supported lookup, so
-    this is exactly the kind of access that breaks on upgrade - which is why
-    it is isolated here.
+    napari-skimage builds the table as a `magicgui.widgets.Table` and docks it
+    in its *own* dock widget named "Results Table" - it is not a child of the
+    plugin's widget. Three lookups are tried, cheapest and most robust first:
+
+    1. `plugin_widget.results_table`, the attribute napari-skimage sets on its
+       own widget. This is the one that actually works today.
+    2. A `findChild` scan of the plugin widget, in case a future release nests
+       the table inside it again.
+    3. A scan of every dock widget napari has registered.
+
+    Step 3 has a trap worth naming, because it is what previously broke this
+    function: `viewer.window.dock_widgets` returns the *inner* widget of each
+    dock, so for "Results Table" the inner widget **is** the table. Qt's
+    `findChild` only searches descendants, so it returns None for a widget
+    that is itself the thing you are looking for. Each candidate is therefore
+    isinstance-checked before its children are searched.
 
     Args:
         viewer (napari.Viewer): The viewer, used for the dock-widget fallback
@@ -275,33 +287,210 @@ def find_regionprops_table(viewer, plugin_widget):
 
     table_classes = (QTableView, QTableWidget)
 
+    # 1. The plugin's own attribute - a magicgui Table wrapping the Qt table.
+    results_table = getattr(plugin_widget, 'results_table', None)
+    native = getattr(results_table, 'native', None)
+    if isinstance(native, table_classes):
+        print(
+            '[PickMe] Found table via the plugin\'s results_table attribute '
+            f'({type(native).__name__}).'
+        )
+        return native
+
+    # 2. Nested somewhere inside the plugin widget.
     for table_class in table_classes:
         table = plugin_widget.native.findChild(table_class)
         if table is not None:
             print(f'[PickMe] Found table in plugin widget: {table_class.__name__}')
             return table
 
+    # 3. Any dock widget - checking each candidate itself before its children.
     for dock_name, dock_widget in iter_dock_widgets(viewer):
         native = getattr(dock_widget, 'native', dock_widget)
+        if isinstance(native, table_classes):
+            print(
+                f"[PickMe] Found table as dock widget: '{dock_name}' "
+                f'({type(native).__name__})'
+            )
+            return native
         for table_class in table_classes:
             table = native.findChild(table_class)
             if table is not None:
                 print(
-                    f"[PickMe] Found table in dock widget: '{dock_name}' "
+                    f"[PickMe] Found table inside dock widget: '{dock_name}' "
                     f'({table_class.__name__})'
                 )
                 return table
 
-    return table
+    return None
+
+
+def table_headers(table):
+    """Read the table's column headers.
+
+    Args:
+        table (QTableView or QTableWidget): The results table.
+
+    Returns:
+        list[str]: One header per column. Columns with no header text become
+        empty strings.
+    """
+    from qtpy.QtCore import Qt
+
+    model = table.model()
+    if model is None:
+        return []
+    headers = []
+    for column in range(model.columnCount()):
+        value = model.headerData(column, Qt.Horizontal)
+        headers.append('' if value is None else str(value))
+    return headers
+
+
+def find_label_column(table):
+    """Find which column of the results table holds the object label.
+
+    `skimage.measure.regionprops_table` returns its columns in alphabetical
+    order, so "label" is almost never column 0 - it lands wherever the sort
+    puts it among the properties the user ticked. Assuming column 0 reads the
+    wrong property entirely (usually `area`), which is why this lookup is by
+    header name.
+
+    Args:
+        table (QTableView or QTableWidget): The results table.
+
+    Returns:
+        int or None: The zero-based column index of the "label" column, or
+        None if the user did not tick "label" in the plugin's property list.
+    """
+    for index, header in enumerate(table_headers(table)):
+        if header.strip().lower() == 'label':
+            return index
+    return None
+
+
+def read_label_cell(table, row, column):
+    """Read one label value out of the results table.
+
+    The table stores its values as *strings* ("7.0", not 7), because magicgui
+    renders the dataframe for display. `int('7.0')` raises `ValueError`, so
+    the value goes through `float` first.
+
+    Args:
+        table (QTableView or QTableWidget): The results table.
+        row (int): Zero-based row index.
+        column (int): Zero-based column index of the label column.
+
+    Returns:
+        int or None: The label, or None if the cell could not be read as a
+        number.
+    """
+    value = table.model().index(row, column).data()
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def configure_table_selection(table):
+    """Make the results table select whole rows, several at a time.
+
+    Without this the table selects individual cells, so a click registers one
+    property rather than one object. Qt's enums are addressed defensively
+    because PyQt6/PySide6 scope them one level deeper than PyQt5 does.
+
+    Args:
+        table (QTableView or QTableWidget): The results table.
+    """
+    from qtpy.QtWidgets import QAbstractItemView
+
+    selection_mode = getattr(
+        QAbstractItemView,
+        'ExtendedSelection',
+        getattr(QAbstractItemView, 'SelectionMode', None),
+    )
+    if hasattr(selection_mode, 'ExtendedSelection'):
+        selection_mode = selection_mode.ExtendedSelection
+
+    selection_behavior = getattr(
+        QAbstractItemView,
+        'SelectRows',
+        getattr(QAbstractItemView, 'SelectionBehavior', None),
+    )
+    if hasattr(selection_behavior, 'SelectRows'):
+        selection_behavior = selection_behavior.SelectRows
+
+    if selection_mode is not None:
+        table.setSelectionMode(selection_mode)
+    if selection_behavior is not None:
+        table.setSelectionBehavior(selection_behavior)
+
+
+def defer(callback):
+    """Run `callback` on the next turn of the Qt event loop.
+
+    Used to tell a real "deselect everything" apart from the empty selection
+    Qt emits just *before* it repopulates or destroys a table. Both look
+    identical at the moment they fire - the row count has not changed yet -
+    but by the next tick the repopulation or teardown has finished and the
+    two are easy to distinguish.
+
+    Args:
+        callback (callable): Called with no arguments on the next event-loop
+            iteration.
+    """
+    from qtpy.QtCore import QTimer
+
+    QTimer.singleShot(0, callback)
+
+
+def table_is_alive(table):
+    """Report whether the table's underlying Qt object still exists.
+
+    Qt objects are destroyed when the viewer window closes, but the Python
+    wrapper lingers; touching it then raises `RuntimeError`. Selections made
+    before the close are still valid, so callers use this to bail out quietly
+    rather than treating teardown as user input.
+
+    Args:
+        table (QTableView or QTableWidget): The results table.
+
+    Returns:
+        bool: True if the table can still be queried.
+    """
+    try:
+        table.model()
+    except RuntimeError:
+        return False
+    return True
+
+
+def analysed_labels_layer(plugin_widget):
+    """Return the labels layer the plugin last ran regionprops on.
+
+    This is the layer the table's rows actually describe. It is a more
+    reliable answer to "which tomogram is this selection for?" than the
+    viewer's active layer, which follows whatever the user last clicked in the
+    layer list and is not tied to the table's contents at all.
+
+    Args:
+        plugin_widget: The widget returned by `add_regionprops_widget`.
+
+    Returns:
+        napari.layers.Labels or None: The analysed layer, or None if the
+        plugin does not expose it.
+    """
+    labels_layer = getattr(plugin_widget, 'labels_layer', None)
+    return getattr(labels_layer, 'value', None)
 
 
 def find_run_button(plugin_widget):
-    """Locate the plugin's "Run"/"Analyse" button.
+    """Locate the plugin's "Analyze" button.
 
-    Takes the first `QPushButton` in the widget tree, which is how the button
-    has been positioned in the supported napari-skimage versions. If upstream
-    adds another button ahead of it, this picks up the wrong one - hence the
-    isolation, and hence the tight pin on napari-skimage.
+    Prefers magicgui's own `call_button`, which is the documented handle for
+    the button that runs the function. The `findChild` scans are fallbacks:
+    the plugin also has a "Save Results" button, so taking the first button in
+    the tree unconditionally can bind to the wrong one.
 
     Args:
         plugin_widget: The widget returned by `add_regionprops_widget`.
@@ -311,25 +500,43 @@ def find_run_button(plugin_widget):
     """
     from qtpy.QtWidgets import QPushButton
 
+    call_button = getattr(plugin_widget, 'call_button', None)
+    native = getattr(call_button, 'native', None)
+    if isinstance(native, QPushButton):
+        return native
+
+    for button in plugin_widget.native.findChildren(QPushButton):
+        if button.text().strip().lower() in ('analyze', 'analyse', 'run'):
+            return button
+
     return plugin_widget.native.findChild(QPushButton)
 
-def _find_table(viewer, plugin_widget):
-    """Search the plugin widget first, then all viewer dock widgets."""
-    # Search inside the plugin widget's native Qt widget
-    from qtpy.QtWidgets import QTableView, QTableWidget
-    for cls in (QTableView, QTableWidget):
-        table = plugin_widget.native.findChild(cls)
-        if table is not None:
-            print(f"[PickMe] Found table in plugin widget: {cls.__name__}")
-            return table
 
-    # Fallback: search every dock widget napari has registered
-    for dock_name, dw in viewer.window._dock_widgets.items(): #changed from _dock_widgets to dock_widgets  
-        native = dw.native if hasattr(dw, 'native') else dw
-        for cls in (QTableView, QTableWidget):
-            table = native.findChild(cls)
-            if table is not None:
-                print(f"[PickMe] Found table in dock widget: '{dock_name}' ({cls.__name__})")
-                return table
+def connect_analysis_finished(plugin_widget, callback):
+    """Call `callback` every time the plugin finishes an analysis run.
+
+    magicgui emits `called` after the widget's function returns, which is
+    exactly when the results table has been filled. That is a supported API,
+    so it is tried first; wiring the button's `clicked` signal is the fallback
+    for builds that do not emit it.
+
+    Args:
+        plugin_widget: The widget returned by `add_regionprops_widget`.
+        callback (callable): Called with no arguments after each run.
+
+    Returns:
+        str or None: A short description of what was connected, for printing,
+        or None if neither route was available.
+    """
+    called = getattr(plugin_widget, 'called', None)
+    if called is not None and hasattr(called, 'connect'):
+        # magicgui passes the function's return value through; swallow it.
+        called.connect(lambda *_: callback())
+        return "magicgui 'called' signal"
+
+    run_button = find_run_button(plugin_widget)
+    if run_button is not None:
+        run_button.clicked.connect(lambda *_: callback())
+        return f"'{run_button.text()}' button"
 
     return None
