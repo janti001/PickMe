@@ -43,6 +43,83 @@ def _format_job_number(job_number):
     """Zero-pad a job number to 3 digits, e.g. ``1`` -> ``'001'``."""
     return f'{int(job_number):03d}'
 
+
+def _open_tomogram_for_display(path):
+    """Open a tomogram for napari without reading it all into memory.
+
+    A float32 tomogram at 1024x1440x500 is about 3 GB, and `choose_object`
+    keeps every tomogram in the input directory open at once. Reading them in
+    full exhausts RAM on a modest machine long before the viewer is shown.
+    Memory-mapping instead leaves the voxels on disk and lets napari page in
+    only the slices it actually draws.
+
+    Only uncompressed `.mrc` files can be mapped, so a compressed file (or any
+    other mapping failure) falls back to a normal in-memory read.
+
+    Args:
+        path (str): Path to the tomogram `.mrc` file.
+
+    Returns:
+        tuple: ``(handle, data)``. `data` is the voxel array, in zyx order.
+        `handle` is the open mrcfile object the array is read through and must
+        be kept alive for as long as the array is in use, then closed by the
+        caller; it is None when the file was read into memory instead.
+    """
+    name = os.path.basename(path)
+    try:
+        handle = mrcfile.mmap(path, mode='r')
+        return handle, handle.data
+    except Exception as error:
+        #Falling back to a full read is exactly what this function exists to
+        #avoid, so always say so. A compressed file is an expected, benign
+        #reason; anything else is reported with the underlying error, which for
+        #a compressed file would otherwise read "not an MRC file, or file is
+        #corrupt" and send the user hunting for a problem they do not have.
+        if name.endswith(('.gz', '.bz2')):
+            reason = 'it is compressed, and compressed data cannot be mapped'
+        else:
+            reason = str(error)
+        print(
+            f'[PickMe] WARNING: reading {name} fully into memory rather than '
+            f'memory-mapping it — {reason}. This needs considerably more RAM; '
+            'decompressing the tomogram first (PickMe decompress) avoids it.'
+        )
+        with mrcfile.open(path, mode='r') as mrc:
+            return None, mrc.data.copy()
+
+
+def _sampled_contrast_limits(array, max_sampled_voxels=5_000_000):
+    """Estimate napari display contrast limits from a subsample of an array.
+
+    napari needs a ``(min, max)`` pair to map voxel values onto screen
+    intensity. Left to work it out itself it scans the array, which for a
+    memory-mapped tomogram means paging the whole file in — undoing the point
+    of mapping it. Striding over the array touches only a fraction of it.
+
+    Args:
+        array (numpy.ndarray): Image data in zyx order. May be a memmap.
+        max_sampled_voxels (int, optional): Rough upper bound on how many
+            voxels to read. Defaults to 5,000,000 (about 20 MB at float32).
+
+    Returns:
+        tuple: ``(low, high)`` floats. Falls back to a unit-width range when
+        the sample is empty or flat, since napari rejects limits where the two
+        values are equal.
+    """
+    #one stride shared across all axes, so an NxNxN array samples every
+    #`step`-th voxel along each and reads roughly max_sampled_voxels in total
+    step = max(1, int(round((array.size / max_sampled_voxels) ** (1 / array.ndim))))
+    sample = array[(slice(None, None, step),) * array.ndim]
+
+    if sample.size == 0:
+        return (0.0, 1.0)
+
+    low = float(np.min(sample))
+    high = float(np.max(sample))
+    if low == high:
+        return (low, low + 1.0)
+    return (low, high)
+
 # --- Object extraction and filtering ---
 def filter_objects(input_dir: str, filter_choice=None, output_dir=None, non_interactive=False):
     """Extract labeled objects from segmentation files and write filtered volumes.
@@ -202,6 +279,13 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
             disk (or left untouched) as described above.
 
     Note:
+        Every tomogram found is loaded into the viewer at once and stays there
+        until it closes. Tomograms are memory-mapped so their voxels stay on
+        disk, but segmentations are gzip-compressed and must be decompressed
+        into RAM, so peak memory still scales with the number of tomograms in
+        the input directory.
+
+    Note:
         Unless `non_interactive` is set, this function prompts via `input()`
         before doing anything else. When the user answers "yes", it also
         lazily imports `napari` and `qtpy` (only inside that branch, since
@@ -276,13 +360,33 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         #instantiate the napari viewer
         viewer = napari.Viewer()
 
-        #Load all tomograms and their segmentations into napari viewer
+        #Load all tomograms and their segmentations into napari viewer.
+        #
+        #Every layer added here stays resident until the viewer closes, so this
+        #loop holds the whole input directory in memory at once. Tomograms are
+        #memory-mapped (see _open_tomogram_for_display) so their voxels stay on
+        #disk; the mapping is only valid while its handle is open, so handles
+        #are collected here and closed after napari.run() returns rather than
+        #by a `with` block.
+        open_tomogram_handles = []
+
         for tomogram_id, data in data_dict.items():
-            with mrcfile.open(data['tomogram'], mode='r') as f:
-                tomogram_data = f.data.copy()
+            handle, tomogram_data = _open_tomogram_for_display(data['tomogram'])
+            if handle is not None:
+                open_tomogram_handles.append(handle)
+
+            #Segmentations are gzip-compressed (.mrc.gz), and compressed data
+            #cannot be memory-mapped — it has to be decompressed into RAM.
+            #They are int8 label arrays, so roughly a quarter the size of the
+            #float32 tomogram they came from.
             with mrcfile.open(data['segmentation'], mode='r') as f:
                 segmentation_data = f.data.copy()
-            viewer.add_image(tomogram_data, name=tomogram_id)
+
+            viewer.add_image(
+                tomogram_data,
+                name=tomogram_id,
+                contrast_limits=_sampled_contrast_limits(tomogram_data),
+            )
             viewer.add_labels(segmentation_data, name=f'{tomogram_id}_segmentation')
         
         # --- Interfacing with napari to select objects of interest directly from napari
@@ -423,6 +527,14 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
 
         # ── launch ───────────────────────────────────────────────────────────────────
         napari.run()   # blocks here
+
+        #napari read the tomograms straight off disk through these handles, so
+        #they can only be released now the viewer is gone. The selection is
+        #written out below by re-reading the segmentations from disk, so
+        #nothing after this point depends on the mapped arrays.
+        for handle in open_tomogram_handles:
+            handle.close()
+        open_tomogram_handles.clear()
 
         # ── post-GUI: filter out tomograms where nothing was selected ────────────────
         final_selection = {tomo: labels for tomo, labels in selections.items() if labels}
