@@ -17,7 +17,8 @@
 # below are resolved relative to the Docker build context:
 #   docker build -f container/Dockerfile -t pickme-em:local .
 
-FROM condaforge/miniforge3:26.3.2-3
+#FROM condaforge/miniforge3:26.3.2-3
+FROM --platform=linux/amd64 condaforge/miniforge3:26.3.2-3
 # Pinned to match container/PickMe.def — see the comment there for why.
 
 ENV DEBIAN_FRONTEND=noninteractive
