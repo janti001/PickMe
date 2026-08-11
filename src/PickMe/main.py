@@ -708,7 +708,7 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
                         #used to be reallocated per object, which meant two
                         #full-size arrays existed at once on every reset.
                         choice_array = np.zeros(shape_zyx, dtype=np.int8)
-                        for coords in chosen_coords.values():
+                        for label, coords in chosen_coords.items():
                             zcoords, ycoords, xcoords = coords[:, 0], coords[:, 1], coords[:, 2]
                             choice_array[zcoords, ycoords, xcoords] = 1
                             out_path = os.path.join(out_dir, f'TS_{tomo_id}_obj{label}.mrc') #could change this to mrc.gz -> for the purpsoe of doing membrain, will leave it as mrc - will change to give user an option
