@@ -183,6 +183,63 @@ def check_display():
     return message
 
 
+def release_viewer(viewer):
+    """Shut a viewer down so its canvas stops being vispy's draw target.
+
+    `viewer.close()` on its own is not enough. vispy keeps a module-level list
+    of every canvas ever registered (`vispy.gloo.context.canvasses`) and routes
+    each draw to the *most recently registered* one. napari's close tears down
+    the Qt widget but never calls vispy's `forget_canvas`, so the entry stays.
+
+    Open a second viewer later in the same session and there are then two
+    canvases. Each OpenGL context has its own GLIR parser holding the objects
+    it created, so draw commands can reach a parser that never saw the matching
+    CREATE, and vispy raises::
+
+        RuntimeError: Cannot SIZE object 44 because it does not exist
+
+    napari reports that as a vispy/napari version mismatch, which it is not.
+    Under the CLI the process exits between runs and none of this shows up; in
+    one long IPython/Jupyter session it does.
+
+    `_qt_viewer.canvas._scene_canvas` is private, hence living in this module.
+    Cleanup must never be the thing that breaks a run, so a moved attribute is
+    reported and skipped rather than raised.
+
+    Args:
+        viewer (napari.Viewer): The viewer to shut down. Safe to call on a
+            viewer that is already closed.
+
+    Returns:
+        bool: True if the canvas was deregistered from vispy, False if the
+        private path has moved (in which case the viewer is still closed).
+    """
+    from vispy.gloo.context import forget_canvas
+
+    forgotten = False
+    try:
+        #Deregister before close() - once Qt has deleted the underlying C++
+        #widget, touching the canvas raises instead of cleaning up.
+        scene_canvas = viewer.window._qt_viewer.canvas._scene_canvas
+    except AttributeError as exc:
+        print(
+            f'[PickMe] WARNING: could not reach the vispy canvas to release it '
+            f'({exc}). Opening another viewer in this same session may fail to '
+            f'render. Restart Python between runs. {DOCS_HINT}'
+        )
+    else:
+        forget_canvas(scene_canvas)
+        forgotten = True
+
+    try:
+        viewer.close()
+    except Exception as exc:
+        #Never let cleanup mask whatever the real error on the way out was.
+        print(f'[PickMe] WARNING: could not close the napari viewer: {exc}')
+
+    return forgotten
+
+
 def add_regionprops_widget(viewer):
     """Dock the napari-skimage Regionprops widget into a viewer.
 

@@ -1,8 +1,22 @@
 # Known Issues
 
 Bugs and rough edges found during the documentation and docstring cleanup pass.
-**Nothing in this list has been fixed** — the cleanup was documentation-only by
-design, so this file records what was found for you to decide on.
+The original pass was documentation-only by design, so this file records what
+was found for you to decide on.
+
+**Status as of branch `gui_3d`** — some have since been fixed; each heading
+below says which. Line numbers in entries predating the `gui_3d` memory work
+have shifted; locate by pattern, not by number.
+
+| # | Issue | Status |
+|---|---|---|
+| 1 | `TS_filtered` micrograph names | **OPEN — blocks distribution** |
+| 2 | Per-tomogram STAR files overwrite | Partly fixed (`removesuffix` done; the collapse persists via #1) |
+| 3 | `filter_objects` reuses last shape/voxel size | **Fixed** |
+| 4 | `convert` hardcodes voxel size to 10 | **Fixed** |
+| 5 | `convert --data-type` ignored | OPEN |
+| 6 | `convert` fails on re-run | OPEN |
+| 7–12 | Dead code, typos, API awkwardness | OPEN |
 
 Line numbers refer to the state of the code after the docstring pass.
 
@@ -47,7 +61,13 @@ default that was never adjusted for the different filename shape.
 
 ---
 
-## 2. Per-tomogram STAR files overwrite each other — Verified
+## 2. Per-tomogram STAR files overwrite each other — PARTLY FIXED
+
+> **Status:** the `str.strip` half is fixed — `main.py` now uses
+> `tomo_name.removesuffix(".tomostar")`. The overwriting itself persists,
+> because it is caused by issue 1 below handing every tomogram the same name.
+> Fixing issue 1 resolves the remainder.
+
 
 **Where:** `src/PickMe/main.py:629`
 
@@ -74,7 +94,12 @@ robust.
 
 ---
 
-## 3. `extract_objects` reuses the last tomogram's shape and voxel size — Verified
+## 3. `filter_objects` reuses the last tomogram's shape and voxel size — FIXED
+
+> **Status:** fixed on `gui_3d`. The two-loop structure that caused it was
+> merged into one during the memory work, so shape and voxel size are now
+> re-derived per tomogram inside the loop that writes the output.
+
 
 **Where:** `src/PickMe/main.py:117` (and the surrounding writing loop)
 
@@ -95,7 +120,11 @@ loop, or carry them alongside the objects in `full_data`.
 
 ---
 
-## 4. `convert` hardcodes the output voxel size to 10 — Verified
+## 4. `convert` hardcodes the output voxel size to 10 — FIXED
+
+> **Status:** fixed. `convert` now reads `voxel_size` from the source file and
+> carries it through to the output.
+
 
 **Where:** `src/PickMe/main.py:816`
 
@@ -139,7 +168,7 @@ in `main.py` passes `overwrite=True`.
 
 ---
 
-## 7. `extract_objects --filter` is dead — Verified
+## 7. `filter_objects --filter` is dead — Verified
 
 **Where:** `src/PickMe/cli.py:117` → `src/PickMe/main.py:47`
 
@@ -233,7 +262,7 @@ on it.
   `requires-python = ">=3.12"`, while `PickMe.yml` pins `python=3.12` and the
   project notes elsewhere say `>=3.12, <3.14`. If 3.14 is genuinely unsupported,
   the bound belongs in `pyproject.toml`.
-- **Four of the five subcommands block on `input()`.** `extract_objects`,
+- **Four of the five subcommands block on `input()`.** `filter_objects`,
   `choose_objects`, `convert` and `decompress` all prompt; only
   `particle_extraction` can run unattended. A `--yes` / `--non-interactive` flag
   would make the tool scriptable.

@@ -14,18 +14,53 @@ source.
 Run `PickMe -h` or `PickMe <subcommand> -h` at any time to see this same
 information from argparse directly.
 
-**Batch-script warning.** Four of the five subcommands — `extract_objects`,
+**Batch-script warning.** Four of the five subcommands — `filter_objects`,
 `choose_objects`, `decompress`, and `convert` (when given a directory) —
 block on an interactive `y/n` prompt read from stdin, and `choose_objects`
 can additionally open a napari GUI. **`particle_extraction` is the only
 subcommand with no interactive prompt at all.** If you're scripting the full
 pipeline unattended, you'll need to either pre-answer the other four
 subcommands' prompts (e.g. by piping input) or restructure your script
-around that constraint.
+around that constraint. The clean way is `--non-interactive`, documented per
+subcommand below.
+
+## How much memory do I need?
+
+Roughly **3–4x the size of one uncompressed tomogram**, and it does *not* grow
+with the number of tomograms in your input directory — each is processed and
+released before the next is read.
+
+For a 700x1400x1400 float32 tomogram (5.5 GB on disk) with a matching `int8`
+segmentation:
+
+| Subcommand | Approximate peak RAM |
+|---|---|
+| `filter_objects` | ~4.2 GB |
+| `choose_objects` (napari GUI) | ~2.8 GB, plus what napari needs to display |
+| `choose_objects` (`--non-interactive`) | ~2.6 GB |
+| `particle_extraction` | small — objects are processed as cropped sub-volumes |
+| `decompress`, `convert` | ~2x the size of one file |
+
+If you are on **WSL2**, note that it caps itself at 50% of your Windows RAM (a
+flat 8 GB on older builds) regardless of what the machine has. Raise it in
+`C:\Users\<you>\.wslconfig`:
+
+```ini
+[wsl2]
+memory=24GB
+swap=8GB
+```
+
+then `wsl --shutdown` and reopen. A process killed with no traceback, or the
+whole WSL session dying, is what hitting that cap looks like.
+
+> Earlier versions needed 12+ GB and grew with the number of tomograms, which
+> made an 8 GB machine unusable. See `distribution.md` §2.2 if you are
+> comparing against older behaviour.
 
 ## Contents
 
-- [`extract_objects`](#extract_objects)
+- [`filter_objects`](#filter_objects)
 - [`choose_objects`](#choose_objects)
 - [`particle_extraction`](#particle_extraction)
 - [`decompress`](#decompress)
@@ -34,7 +69,7 @@ around that constraint.
 
 ---
 
-## `extract_objects`
+## `filter_objects`
 
 Finds segmentation files, identifies every labelled object in them with
 `skimage.measure.regionprops`, discards the objects that look like noise using
@@ -82,7 +117,7 @@ option today.
 
 **Example:**
 ```bash
-PickMe extract_objects --input-dir ./segmentations --output-dir ./outputs
+PickMe filter_objects --input-dir ./segmentations --output-dir ./outputs
 ```
 
 ---
@@ -135,7 +170,7 @@ Are there any objects which you would like to select (y/n)?
   `--write-selections`:
   - `--write-selections` **not** set: the filtered files are left exactly as
     they are; nothing new is written.
-  - `--write-selections` set: every object that survived `extract_objects` is
+  - `--write-selections` set: every object that survived `filter_objects` is
     written out as its own file (see Outputs below) — useful for exporting
     membranes without hand-picking any of them.
 
@@ -298,10 +333,12 @@ With `--non-interactive`, everything found is converted without asking — as is
 already the case when `--input-dir` points at a single file.
 
 **Known limitation.** `--data-type` is parsed but never used — `convert()`
-always casts to `numpy.float32` and always sets the output voxel size to
-`10`, no matter what `--data-type` or the tomogram's original voxel size
-were. Pass it if you like for documentation purposes in your own command
-history, but it currently changes nothing.
+always casts to `numpy.float32` regardless of what you pass. Pass it if you
+like for documentation purposes in your own command history, but it currently
+changes nothing.
+
+*(The output voxel size used to be hardcoded to `10`; that is fixed — the
+source file's voxel size is now carried through.)*
 
 **Outputs**, written to `<output_root>/convert/jobNNN/`:
 - `<prefix>_<id>_f32.mrc` — where `<prefix>` and `<id>` are the first two

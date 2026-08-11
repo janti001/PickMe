@@ -7,16 +7,25 @@ dependencies:
   - pip
 
   # PickMe runtime dependencies.
-  - numpy
-  - pandas
-  - matplotlib
-  - starfile
-  - mrcfile
-  - scikit-image
-  - seaborn
-  - plotly
-  - tqdm
-  - scipy
+  # Mirrors the floor/ceiling ranges in pyproject.toml's `dependencies` list -
+  # see the comments there for why each bound exists (they were completely
+  # unpinned before this audit, which let a fresh solve silently pick up a
+  # breaking major release). conda uses the same operators as pip here, so
+  # the ranges translate directly; keep the two files in step by hand, the
+  # same way the GUI pins below already are.
+  - numpy>=1.24
+  - pandas>=2.0,<3
+  - matplotlib>=3.7
+  - starfile>=0.4
+  - mrcfile>=1.3
+  - scikit-image>=0.22
+  - seaborn>=0.12
+  - tqdm>=4.60
+  - scipy>=1.10
+  # plotly was removed: grepping src/PickMe turns up no import of it at all -
+  # it was pure conda-solver weight with no code behind it. seaborn stayed,
+  # it is genuinely imported by plotting/knee_plot.py, plotting/plot_angles.py
+  # and main.py.
 
   # Keep the Qt/PyQt GUI stack in conda-forge.
   # Installing these through pip can mix incompatible Qt libraries.
@@ -26,10 +35,19 @@ dependencies:
   # private API, so an unconstrained minor upgrade can break object selection
   # without raising an error. Keep these in step with the ranges in
   # pyproject.toml and SUPPORTED_VERSIONS in src/PickMe/gui/napari_compat.py.
+  #
+  # pyproject.toml now also exposes this same set as an optional pip extra
+  # (`pip install PickMe-EM[gui]`), so a plain `pip install PickMe-EM` on an
+  # HPC/batch box doesn't drag in Qt for headless-only use. That split does
+  # not affect this file: the `pip: --no-deps -e .` line below means pip
+  # never even reads pyproject.toml's dependency list, so the GUI stays
+  # unconditionally installed here, matching docs/gui-setup.md's "nothing
+  # here is optional" for the conda path.
   - napari >=0.7.0,<0.8
   - napari-skimage >=0.6.0,<0.7
   - pyqt6 >=6.9,<6.12
   - qt6-main >=6.9,<6.12
+  - vispy >=0.16.1,<0.17
 
   # The X11 libraries (xcb-util*, libxkbcommon) are NOT listed here on
   # purpose. conda-forge only ships them for Linux, so naming them directly

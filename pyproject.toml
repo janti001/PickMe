@@ -8,19 +8,110 @@ version="0.1.1"
 authors=[{name="Joe Antinoro", email="ucbtj22@ucl.ac.uk"}]
 description="A tool to be incorporated into membrane segmentation and particle picking pipelines."
 readme="README.md"
-requires-python=">=3.12"
+requires-python=">=3.12,<3.14"
+# Upper bound rationale: every dependency below (numpy, scipy, scikit-image,
+# pandas, napari, PyQt6...) already publishes wheels for 3.13 and even 3.14,
+# so nothing here is *broken* on newer interpreters as far as PyPI metadata
+# shows. But PickMe.yml pins conda to exactly python=3.12, and the GUI path
+# leans on private Qt/napari-skimage internals (see gui/napari_compat.py)
+# that have only ever been run against 3.12. Capping at <3.14 keeps pip
+# installs inside the range this package has actually been exercised on,
+# without blocking 3.13, which is already in normal use. Raise this only
+# after testing choose_objects (the napari/Qt path) on the newer interpreter.
 dependencies=[
-	'numpy',
-	'pandas',
-	'matplotlib',
-	'starfile',
-	'mrcfile',
-	'scikit-image',
-	'seaborn',
-	'plotly',
-	'tqdm',
-	'scipy',
+	# --- Core scientific / IO stack ----------------------------------------
+	# Everything below used to be completely unpinned, which meant a fresh
+	# install could silently pull in a brand-new major release that changes
+	# behaviour underneath this code. The floors below are the oldest
+	# release known to have the specific function/argument this code calls;
+	# the ceilings are added only where a *later* release is a confirmed
+	# breaking major, not as speculative caution (over-pinning makes conda's
+	# solver unable to find a working combination, which is its own failure
+	# mode).
+	'numpy>=1.24',
+	# No numpy floor drama here: the code uses only plain array ops (no
+	# np.float/np.int/np.bool legacy aliases, which numpy 1.24+ removed
+	# anyway), so any 1.24+ or 2.x release works. No numpy 3.0 exists yet,
+	# so no ceiling.
+	'scipy>=1.10',
+	# scipy.spatial.cKDTree and scipy.ndimage.gaussian_filter/center_of_mass
+	# are long-stable APIs; 1.10 is just "reasonably modern" so HPC module
+	# systems with an older scipy still resolve cleanly.
+	'pandas>=2.0,<3',
+	# <3 is load-bearing, not caution: pandas 3.0 (released Jan 2026) made
+	# `str` the default inferred dtype for text columns and removed
+	# long-deprecated APIs - a confirmed breaking change, not a hypothetical
+	# one. This code builds STAR-file DataFrames with
+	# `pd.DataFrame.from_dict`/`pd.concat` (see main.py), which is exactly
+	# the code path the dtype change affects. >=2.0 avoids the pre-2.0
+	# `DataFrame.append` era and its different empty-frame concat behaviour.
+	'matplotlib>=3.7',
+	'starfile>=0.4',
+	'mrcfile>=1.3',
+	# Floor is a hard requirement, not caution: `mrcfile.new(...,
+	# compression='gzip')` (main.py) only exists from mrcfile 1.3.0 onward.
+	# Anything older raises TypeError on the very first compressed write.
+	'scikit-image>=0.22',
+	# regionprops/marching_cubes are the modern, non-deprecated entry points
+	# (marching_cubes replaced the old marching_cubes_lewiner name); 0.22
+	# keeps that without demanding the newest release.
+	'seaborn>=0.12',
+	# histplot/color_palette/set_style/set_context (plotting/) are the
+	# modern seaborn API, stable since the 0.11/0.12 line.
+	'tqdm>=4.60',
 
+	# plotly and seaborn were both declared before this audit. seaborn is
+	# genuinely imported (see plotting/knee_plot.py, plotting/plot_angles.py,
+	# main.py). plotly is not imported anywhere under src/PickMe - grepping
+	# the whole package turns up zero matches - so it was pure solve weight
+	# with no code behind it. Removed.
+	]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+license="GPL-3.0-or-later"
+license-files=["LICEN[CS]E*"]
+keywords=['picking', 'membrane', 'picker', 'pickme', 'Pickme', 'PickMe']
+
+[project.urls]
+HomePage="https://github.com/janti001/PickMe"
+
+
+[project.scripts]
+PickMe = 'PickMe.cli:main'
+
+# --- Optional GUI extra -----------------------------------------------------
+# napari/napari-skimage/Qt are only needed by `choose_objects`, and only when
+# a user answers "yes" to opening the viewer (see the lazy `import napari`
+# inside main.py's interactive branch, and gui/napari_compat.py's module
+# docstring - nothing GUI-related is imported at package import time). The
+# other four subcommands are headless and never touch Qt.
+#
+# Installing PickMe-EM via pip used to always drag in the entire Qt/napari
+# stack even for a pure batch/HPC install, which is a common reason those
+# installs fail (compiled Qt wheels, no display, etc. - see
+# docs/gui-setup.md). Moving it to an extra means:
+#   pip install PickMe-EM            -> headless only (filter/particle/etc.)
+#   pip install PickMe-EM[gui]       -> adds the pinned napari/Qt stack
+#
+# The conda path (PickMe.yml) is UNAFFECTED by this split: PickMe.yml lists
+# napari/napari-skimage/pyqt6/qt6-main directly as conda dependencies and
+# installs this package with `pip --no-deps`, so pip never even looks at
+# these extras - the GUI stays default-installed there, exactly as
+# docs/gui-setup.md promises ("nothing here is optional").
+#
+# NOTE: this table must stay declared AFTER every plain `[project]` key
+# above (classifiers, license, urls, scripts...). TOML has no way to reopen
+# `[project]` once a subtable like this one is declared, so anything meant
+# to land directly under `[project]` has to come first in the file.
+[project.optional-dependencies]
+gui = [
 	# --- GUI stack (napari + Qt) -------------------------------------------
 	# These are pinned much more tightly than the rest. `choose_objects`
 	# drives the napari-skimage Regionprops widget by reaching into its Qt
@@ -37,19 +128,12 @@ dependencies=[
 	'napari-skimage>=0.6.0,<0.7',
 	'qtpy>=2.4,<3',
 	'PyQt6>=6.9,<6.12',
+	# vispy was imported directly by gui/napari_compat.py
+	# (`from vispy.gloo.context import forget_canvas`, used to work around a
+	# napari viewer-cleanup bug) but was never declared here - it only
+	# happened to work because napari pulls it in transitively. Declaring it
+	# explicitly, pinned to the same range napari 0.7.0 itself requires, so
+	# it doesn't silently break if a future napari release changes its own
+	# vispy pin.
+	'vispy>=0.16.1,<0.17',
 	]
-
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
-]
-license="GPL-3.0-or-later"
-license-files=["LICEN[CS]E*"]
-keywords=['picking', 'membrane', 'picker', 'pickme', 'Pickme', 'PickMe']
-
-[project.urls]
-HomePage="https://github.com/janti001/PickMe"
-
-
-[project.scripts]
-PickMe = 'PickMe.cli:main'

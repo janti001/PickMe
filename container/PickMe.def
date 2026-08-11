@@ -1,0 +1,168 @@
+# PickMe.def — Apptainer/Singularity definition for PickMe-EM
+#
+# Builds one image containing:
+#   - a conda env solved straight from ../PickMe.yml (the SAME file the conda
+#     workflow uses — this file does not duplicate the dependency list, it
+#     just tells conda to read it)
+#   - the Linux X11/OpenGL libraries the napari+Qt6 GUI (`choose_objects`)
+#     needs, which is exactly the piece that breaks on bare WSL and HPC
+#     compute nodes (see ../docs/gui-setup.md)
+#
+# Build from the REPO ROOT (build.sh does this for you):
+#   apptainer build container/PickMe.sif container/PickMe.def
+#
+# Why repo root matters: the %files section below copies paths that are
+# resolved relative to the directory you run `apptainer build` FROM, not
+# relative to this .def file. build.sh cds to the repo root before invoking
+# apptainer for exactly this reason — running this file directly from inside
+# container/ will fail to find PickMe.yml.
+
+Bootstrap: docker
+From: condaforge/miniforge3:26.3.2-3
+# Pinned instead of ":latest" so a rebuild next year reproduces the same
+# base OS/conda instead of silently drifting. condaforge/miniforge3 is built
+# on Ubuntu (noble/24.04 as of this tag) — the apt package names in %post
+# below were checked against packages.ubuntu.com for that release.
+
+%files
+    # Only what `pip --no-deps -e .` and `conda env create` need to build the
+    # package — not tests/, docs/, outputs/, Notebooks/, .git, etc. Paths are
+    # relative to the repo root (see build.sh).
+    PickMe.yml /opt/PickMe/PickMe.yml
+    pyproject.toml /opt/PickMe/pyproject.toml
+    README.md /opt/PickMe/README.md
+    LICENSE /opt/PickMe/LICENSE
+    src/PickMe /opt/PickMe/src/PickMe
+
+%post
+    # `set -eu`, NOT `set -euo pipefail`. Apptainer runs %post under /bin/sh,
+    # which is dash on Ubuntu, and dash has no `pipefail` option — using it
+    # aborts the build on this very line with "Illegal option -o pipefail".
+    # There are no pipes below, so -eu alone gives the same fail-fast safety.
+    set -eu
+
+    export DEBIAN_FRONTEND=noninteractive
+
+    # --- X11 / OpenGL libraries for the napari + Qt6 GUI (choose_objects) --
+    # qt6-main (installed via conda below) ships the Qt *library* code, but
+    # on Linux it still dynamically links against system X11/GL libraries at
+    # runtime. A minimal container image doesn't have these, and that is
+    # what produces the classic
+    #   "qt.qpa.plugin: Could not load the Qt platform plugin 'xcb'"
+    # failure on WSL/HPC (see ../docs/gui-setup.md troubleshooting table).
+    # Every package below was verified to exist for Ubuntu noble (24.04),
+    # the distro condaforge/miniforge3:26.3.2-3 is built on.
+    apt-get update
+    apt-get install --no-install-recommends --yes \
+        libgl1 \
+        libegl1 \
+        libopengl0 \
+        libglx0 \
+        libxkbcommon0 \
+        libxkbcommon-x11-0 \
+        libxcb1 \
+        libxcb-cursor0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-randr0 \
+        libxcb-render0 \
+        libxcb-render-util0 \
+        libxcb-shape0 \
+        libxcb-shm0 \
+        libxcb-sync1 \
+        libxcb-util1 \
+        libxcb-xfixes0 \
+        libxcb-xinerama0 \
+        libxcb-xkb1 \
+        libx11-xcb1 \
+        libdbus-1-3 \
+        libfontconfig1 \
+        libfreetype6 \
+        libnss3 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxrandr2 \
+        libxi6 \
+        libsm6 \
+        libice6 \
+        mesa-utils \
+        ca-certificates
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+    # --- The conda environment: single source of truth is ../PickMe.yml ---
+    # `conda env create -f PickMe.yml` also runs the "pip: --no-deps -e ."
+    # line at the bottom of PickMe.yml. Conda/pip resolve that "." relative
+    # to the CURRENT WORKING DIRECTORY, not the location of the yml file —
+    # so we cd into /opt/PickMe (where %files copied the source) first.
+    cd /opt/PickMe
+    conda env create -f PickMe.yml
+    conda clean --all --yes
+
+    # Build-time smoke test: fail the build loudly here rather than handing
+    # a user a .sif that silently doesn't work. Mirrors the project's own
+    # smoke checks (see CLAUDE.md "Smoke Checks").
+    /opt/conda/envs/PickMe/bin/python -m compileall /opt/PickMe/src/PickMe
+    /opt/conda/envs/PickMe/bin/PickMe -h
+    /opt/conda/envs/PickMe/bin/PickMe filter_objects -h
+    /opt/conda/envs/PickMe/bin/PickMe choose_objects -h
+    /opt/conda/envs/PickMe/bin/PickMe particle_extraction -h
+    /opt/conda/envs/PickMe/bin/PickMe decompress -h
+    /opt/conda/envs/PickMe/bin/PickMe convert -h
+
+%environment
+    # PickMe.yml's "name:" field is "PickMe" — this must match if that ever
+    # changes.
+    export CONDA_ENV=PickMe
+    export PATH=/opt/conda/envs/${CONDA_ENV}/bin:${PATH}
+
+    # Qt needs to know which windowing backend to use. xcb is the X11
+    # backend and is correct for every supported use case here (WSLg, an
+    # X server, ssh -X, VNC-with-Xvnc). Users needing software rendering
+    # set LIBGL_ALWAYS_SOFTWARE=1 themselves at `apptainer run/exec` time
+    # (see README.md) — deliberately NOT baked in here, since it slows down
+    # every headless subcommand for no benefit.
+    export QT_QPA_PLATFORM=xcb
+
+    # Headless-safe default for matplotlib (filter/angle diagnostic plots
+    # are saved to disk, never shown interactively) so the four batch
+    # subcommands never accidentally try to open a plot window on a node
+    # with no display. napari/Qt are unaffected — they manage their own
+    # rendering, not matplotlib's.
+    export MPLBACKEND=Agg
+
+%runscript
+    exec PickMe "$@"
+
+%test
+    # Runs on `apptainer test PickMe.sif` and is a good post-build sanity
+    # check if you build the image on one machine and want to confirm it
+    # before copying it to another (e.g. before scp-ing to an HPC cluster).
+    # -eu only, not pipefail: %test runs under /bin/sh (dash) like %post.
+    set -eu
+    export PATH=/opt/conda/envs/PickMe/bin:${PATH}
+    PickMe -h
+    echo "PickMe.sif: entry point OK"
+
+%labels
+    Author PickMe-EM maintainers
+    Application PickMe-EM
+    Description Membrane segmentation and particle picking CLI for cryo-EM/cryo-ET, with napari GUI object selection
+    BaseImage condaforge/miniforge3:26.3.2-3
+
+%help
+    PickMe-EM container image.
+
+    Build (from the repo root):
+        ./container/build.sh
+
+    Run a headless subcommand:
+        apptainer exec PickMe.sif PickMe filter_objects --input-dir /data/segmentations --non-interactive
+
+    Run the napari GUI subcommand (needs X11 — see README.md):
+        apptainer exec --bind /tmp/.X11-unix --env DISPLAY=$DISPLAY PickMe.sif \
+            PickMe choose_objects --input-dir /data/tomograms
+
+    Full usage, SLURM sbatch example, X11/GPU flags, and a troubleshooting
+    table: see container/README.md.

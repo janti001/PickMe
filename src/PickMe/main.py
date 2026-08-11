@@ -14,8 +14,11 @@ import math as m
 from pathlib import Path
 import re
 
+from mrcfile.utils import data_shape_from_header
+
 from . import sampling, utils, filter, plotting, angles
 from .config import mgraph_suffix, star_suffix
+from .utils.object_extraction import object_coords_by_label
 
 """Pipeline functions for the PickMe-EM CLI.
 
@@ -42,6 +45,37 @@ full_data_dict = {} #dictionary associating tomogram, with objects, and the obje
 def _format_job_number(job_number):
     """Zero-pad a job number to 3 digits, e.g. ``1`` -> ``'001'``."""
     return f'{int(job_number):03d}'
+
+
+def _tomogram_shape_and_voxel_size(path):
+    """Read a tomogram's shape and voxel size without reading its voxels.
+
+    Both of these live in the MRC header, which is the first 1024 bytes of the
+    file. This matters more than it sounds: `mrcfile.open(path)` reads the
+    *whole* file into RAM, so asking it for `mrc.data.shape` costs the full
+    size of the tomogram — 5.5 GB for a 700x1400x1400 float32 volume — to
+    learn three integers. That is what used to kill this pipeline on an 8 GB
+    machine. `header_only=True` stops after the header, leaving `mrc.data` as
+    None, and the numbers below come from the header instead.
+
+    Args:
+        path (str): Path to the tomogram, `.mrc` or a compressed `.mrc.gz` /
+            `.mrc.bz2`.
+
+    Returns:
+        tuple: ``(shape_zyx, voxel_size)``. `shape_zyx` is a tuple of ints in
+        **zyx** order, matching the array `mrcfile` would have produced had
+        the data been read. `voxel_size` is the x voxel size in angstroms, as
+        a float.
+    """
+    with mrcfile.open(path, mode='r', header_only=True) as mrc:
+        #mrcfile's own header-to-shape helper, rather than reading nz/ny/nx
+        #directly, so the shape is exactly the one mrcfile would have given
+        #the data array — including its special cases for image stacks.
+        shape_zyx = tuple(int(axis) for axis in data_shape_from_header(mrc.header))
+        voxel_size = float(mrc.voxel_size.x)
+
+    return shape_zyx, voxel_size
 
 
 def _open_tomogram_for_display(path):
@@ -155,12 +189,22 @@ def filter_objects(input_dir: str, filter_choice=None, output_dir=None, non_inte
         Progress and a per-tomogram object count summary are printed via
         `print()` and `tqdm`, not a logging framework.
     """
-    full_data = {} #this could be a class for sure
     # --- Making output directories
     output_directory = utils.check_make_dir(directory=output_dir, job_name='filter')
-    #Get all objects 
+    #Get all objects
     files = utils.choose_tomograms(segmentation_directory=input_dir, non_interactive=non_interactive)
+
+    #Only the short per-tomogram summary lines are carried out of the loop.
+    #Each tomogram's objects are written to disk inside the loop and then
+    #dropped, because a skimage RegionProperties holds a reference to the whole
+    #label image it was measured from — keeping one tomogram's objects alive
+    #keeps that tomogram's entire segmentation array alive with it. Collecting
+    #them all up first, as this used to, meant every segmentation in the input
+    #directory was resident in RAM simultaneously.
+    summary_lines = []
+
     # --- Begin processing
+    print('Extracting objects and writing filtered segmentations to mrc.gz...')
     with tqdm(total=len(files), desc='Running Extraction', unit='Tomogram', leave=True) as pbar:
         for file in files:
             try:
@@ -176,41 +220,54 @@ def filter_objects(input_dir: str, filter_choice=None, output_dir=None, non_inte
                 #getting out the objects of the tomograms and filtering out noise
                 objects_dict, volumes = utils.object_extraction(segmentation)
                 objects_filtered = filter.knee_detection(objects_dictionary=objects_dict, volume_array=volumes, micrograph=mgraph, output=output_directory)
-                #we now have filtered objects
-                #add them to our full data dictionary
-                full_data[f'{mgraph}'] = objects_filtered #this could be a class for sure
+
+                summary_lines.append(
+                    f'\nFor tomogram {mgraph}, {len(objects_filtered)} objects were '
+                    f'selected. Objects: {list(objects_filtered.keys())}'
+                )
+
+                # --- Write this tomogram's filtered segmentation straight out
+                #`dtype=np.int8` is load-bearing. Without it np.zeros defaults
+                #to float64, which for a 700x1400x1400 volume is 11 GB, and the
+                #.astype(np.int8) that used to follow allocated the int8 array
+                #on top of it rather than in place — so both were resident at
+                #once. Labels are small integers and only ever need int8.
+                #
+                #The shape and voxel size come from *this* file. They used to be
+                #read in this loop but used in a second loop after it, where
+                #they still held whatever the last file processed had set, so
+                #every output silently took the last tomogram's dimensions.
+                filtered_array = np.zeros(shape_zyx, dtype=np.int8)
+                #now go through all the objects, get their coordinates and labels and put them back in
+                for object in objects_filtered.values():
+                    coords = object.coords
+                    pix_label = object.label
+                    filtered_array[coords[:, 0], coords[:, 1], coords[:, 2]] = pix_label
+
+                #now write a new mrc file
+                tomo_name = mgraph.split('.')[0]
+                out_path = f'{os.path.join(output_directory, tomo_name)}_filtered.mrc.gz'
+                with mrcfile.new(name=out_path, compression='gzip', overwrite=True) as mrc:
+                    mrc.set_data(filtered_array)
+                    mrc.voxel_size = pix_size
             except Exception as e:
                 print(f'There was an error with file:{file}')
                 print(f'Error: {e}')
                 raise(e)
-            #update bar
-            pbar.update(1)
-    
-    # --- Print out the results of initial extraction
-    for tomogram, data in full_data.items():
-        print(f'\nFor tomogram {tomogram}, {len(list(data.values()))} objects were selected. Objects: {list(data.keys())}')
-    print('\n\nExtraction complete!')
+            finally:
+                #Drop this tomogram's arrays before the next one is read, so
+                #peak memory is one segmentation rather than all of them.
+                segmentation = None
+                objects_dict = None
+                objects_filtered = None
+                filtered_array = None
+                #update bar
+                pbar.update(1)
 
-    # --- Writing out the tomogram segmentations to mrc to the output directory
-    print('Writing out tomogram segmentations to mrc.gz...')
-    with tqdm(total=len(full_data.keys()), desc='Writing new objects to mrc.gz', unit='Tomogram', leave=True) as pbar:
-        for tomogram, objects in full_data.items():
-            tomo_name = tomogram.split('.')[0]
-            filtered_array = np.zeros(shape=shape_zyx)
-            filtered_array = filtered_array.astype(np.int8)
-            #now go through all the objects, get their coordinates and labels and put them back in
-            #update pbar
-            pbar.set_postfix_str(f'Processing {mgraph}')
-            for object in objects.values():
-                coords = object.coords
-                pix_label = object.label
-                filtered_array[coords[:, 0], coords[:, 1], coords[:, 2]] = pix_label
-            #now write a new mrc file
-            out_path = f'{os.path.join(output_directory, tomo_name)}_filtered.mrc.gz'
-            with mrcfile.new(name=out_path, compression='gzip', overwrite=True) as mrc:
-                mrc.set_data(filtered_array)
-                mrc.voxel_size = pix_size
-            pbar.update(1)
+    # --- Print out the results of the extraction
+    for line in summary_lines:
+        print(line)
+    print('\n\nExtraction complete!')
     print(f'\n\nAll filtered segmentations have been written to gzipped mrc files in {output_directory}!')
     #not sure to return full date or not
     return None
@@ -346,9 +403,36 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
     if ask_user == True:
         #Imports - remove it from top level as these are only needed if user wants to select specific objects and we want to avoid unnecessary imports if they don't
         #(Qt itself is only touched inside gui/napari_compat.py.)
-        import napari
-
+        #
+        #The GUI stack is an optional extra: `pip install PickMe-EM` deliberately
+        #leaves napari and Qt out so headless and cluster installs stay small, and
+        #only `PickMe-EM[gui]` pulls them in. That makes a missing napari an
+        #ordinary, expected situation rather than a broken install, so it is
+        #caught here and explained. It has to be caught at the import itself —
+        #napari_compat.check_gui_versions() below cannot help, because reaching
+        #it already requires the import to have succeeded.
+        #napari_compat itself imports nothing heavier than the standard library,
+        #so it is safe to bring in first and gives us the shared docs pointer to
+        #quote if napari turns out to be missing.
         from .gui import napari_compat
+
+        try:
+            import napari
+        except ImportError as error:
+            message = (
+                'Object selection needs the optional GUI dependencies (napari, '
+                'napari-skimage, qtpy, PyQt6, vispy), and they are not installed '
+                f'in this environment — {error}.\n'
+                '  Install them with:  pip install "PickMe-EM[gui]"\n'
+                '  or recreate the conda environment from PickMe.yml, which '
+                'installs them by default.\n'
+                '  On a cluster, or any machine without a display, pass '
+                '--non-interactive instead. That skips the napari step entirely '
+                'and lets the rest of the pipeline run.\n'
+                f'  {napari_compat.DOCS_HINT}'
+            )
+            print(f'[PickMe] ERROR: {message}')
+            raise RuntimeError(message) from error
 
         #Check the GUI stack before opening a window. napari-skimage is driven
         #through private Qt internals (see gui/napari_compat.py), so a version
@@ -526,15 +610,23 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
             )
 
         # ── launch ───────────────────────────────────────────────────────────────────
-        napari.run()   # blocks here
+        try:
+            napari.run()   # blocks here
+        finally:
+            #Releasing the viewer is required for correctness, not tidiness: a
+            #viewer left registered with vispy makes the *next* viewer in the
+            #same session fail to render ("Cannot SIZE object N because it does
+            #not exist"). See napari_compat.release_viewer for the mechanism.
+            #In `finally` so a crash inside the GUI cannot leak the canvas.
+            napari_compat.release_viewer(viewer)
 
-        #napari read the tomograms straight off disk through these handles, so
-        #they can only be released now the viewer is gone. The selection is
-        #written out below by re-reading the segmentations from disk, so
-        #nothing after this point depends on the mapped arrays.
-        for handle in open_tomogram_handles:
-            handle.close()
-        open_tomogram_handles.clear()
+            #napari read the tomograms straight off disk through these handles,
+            #so they can only be released now the viewer is gone. The selection
+            #is written out below by re-reading the segmentations from disk, so
+            #nothing after this point depends on the mapped arrays.
+            for handle in open_tomogram_handles:
+                handle.close()
+            open_tomogram_handles.clear()
 
         # ── post-GUI: filter out tomograms where nothing was selected ────────────────
         final_selection = {tomo: labels for tomo, labels in selections.items() if labels}
@@ -552,134 +644,98 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
 
 
         # --- Applying the selection and writing out files ---------------------
-        final_data = {}
-        
-        print('Extracting selected objects from tomograms...')
-        with tqdm(total=len(filtered_seg_list), desc='Running Extraction', unit='Tomogram', leave=True) as pbar:
-            for tomo_id, data in data_dict.items():
+        #Extraction and writing are deliberately one loop. Doing all the
+        #extraction first, as this used to, meant every tomogram's objects were
+        #held until the last file had been read — and a skimage
+        #RegionProperties keeps a reference to the whole label image it was
+        #measured from, so that pinned every segmentation array in RAM at once.
+        #Here each tomogram is read, written, and released before the next one
+        #is touched, so peak memory is one tomogram's worth however many there
+        #are.
+        #
+        #Tomograms nobody selected anything in are skipped outright; they used
+        #to be read and fully analysed only for the result to be discarded.
+        print('Extracting selected objects and writing them to disk...')
+
+        with tqdm(total=len(final_selection), desc='Writing', unit='Tomogram', leave=True) as pbar:
+            for tomo_id, chosen_labels in final_selection.items():
                 try:
+                    pbar.set_postfix_str(f'Processing tomogram: {tomo_id}...')
+
+                    tomogram_path = data_dict.get(tomo_id)['tomogram']
+                    if tomogram_path is None:
+                        print(f'Warning: no matching tomogram found for {tomo_id}')
+                        continue
+
                     segmentation_path = data_dict.get(tomo_id)['segmentation']
                     with mrcfile.open(segmentation_path, mode='r') as mrc:
                         segmentation = mrc.data.copy()
-                        shape_zyx = segmentation.shape
-                        pix_size = mrc.voxel_size.x  # avoid re-opening for voxel size
 
+                    #Take the coordinates of the chosen objects only, then drop
+                    #the segmentation array so it can be garbage collected
+                    #before the (much larger) output array is allocated below.
+                    chosen_coords = object_coords_by_label(segmentation, labels=chosen_labels)
+                    segmentation = None
+                    if not chosen_coords:
+                        continue
+
+                    #The output copies its shape and voxel size from the
+                    #tomogram, and both of those live in the 1 KB MRC header.
+                    #Opening the tomogram the normal way would read all 5.5 GB
+                    #of its voxels just to reach them — that is what used to
+                    #kill this loop at "Writing: 0%".
+                    shape_zyx, pix_size = _tomogram_shape_and_voxel_size(tomogram_path)
                     pbar.set_postfix_str(f'Processing {tomo_id} | shape (zyx)={shape_zyx}')
 
-                    # Extract and filter objects in one step
-                    objects_dict, _ = utils.object_extraction(segmentation)
+                    if write_selections == False:
+                        choice_array = np.zeros(shape_zyx, dtype=np.int8)
+                        #One combined segmentation per tomogram, with each
+                        #object painted in at its own label value.
+                        for label, coords in chosen_coords.items():
+                            zcoords, ycoords, xcoords = coords[:, 0], coords[:, 1], coords[:, 2]
+                            choice_array[zcoords, ycoords, xcoords] = label
 
-                    # Filter to selected labels immediately — no need to store full_data
-                    chosen_labels = final_selection.get(tomo_id, set())
-                    chosen_objects = [obj for obj in objects_dict.values() if obj.label in chosen_labels]
-
-                    if chosen_objects:
-                        final_data[tomo_id] = chosen_objects
+                        out_path = os.path.join(output_directory, f'TS_{tomo_id}_filtered_chosen.mrc.gz')
+                        with mrcfile.new(out_path, compression = 'gzip', overwrite=True) as new_file:
+                            new_file.set_data(choice_array)
+                            new_file.voxel_size = pix_size
+                    elif write_selections == True:
+                        print(f'\n\nWriting out each selected object as a separate mrc file in {output_directory} for membrane sampling...')
+                        out_dir = os.path.join(output_directory, f'TS_{tomo_id}_membranes')
+                        os.makedirs(out_dir, exist_ok=True)
+    
+                        #One array reused across every object in this tomogram. It
+                        #used to be reallocated per object, which meant two
+                        #full-size arrays existed at once on every reset.
+                        choice_array = np.zeros(shape_zyx, dtype=np.int8)
+                        for coords in chosen_coords.values():
+                            zcoords, ycoords, xcoords = coords[:, 0], coords[:, 1], coords[:, 2]
+                            choice_array[zcoords, ycoords, xcoords] = 1
+                            out_path = os.path.join(out_dir, f'TS_{tomo_id}_obj{label}.mrc') #could change this to mrc.gz -> for the purpsoe of doing membrain, will leave it as mrc - will change to give user an option
+                            with mrcfile.new(out_path, overwrite=True) as new_file:
+                                new_file.set_data(choice_array)
+                                new_file.voxel_size = pix_size
+                            choice_array.fill(0) #reset for next object
 
                 except Exception as e:
                     print(f'Error with file: {tomo_id}\n{e}')
                     raise
                 finally:
+                    #Release the large arrays before the next tomogram is read.
+                    #one tomogram done — this update used to sit inside the
+                    #object loop, so the bar ran past its own total
+                    segmentation = None
+                    chosen_coords = None
+                    choice_array = None
                     pbar.update(1)
-
-
-        # Write filtered segmentation masks
-        print('Writing new objects to disk now as mrc.gz files')
-
 
         if write_selections == False:
-            with tqdm(total=len(final_data), desc='Writing', unit='Tomogram', leave=True) as pbar:
-                for tomo_id, selected_objects in final_data.items():
-                    tomogram_path = data_dict.get(tomo_id)['tomogram']
-                    #print(f'tomogram path {tomogram_path}')
-                    pbar.set_postfix_str(f'Processing tomogram: {tomo_id}...')
-                    if tomogram_path is None:
-                        print(f'Warning: no matching tomogram found for {tomo_id}')
-                        continue
-
-                    with mrcfile.open(tomogram_path, mode='r') as mrc:
-                        shape_zyx = mrc.data.shape        # no .copy() needed for shape
-                        pix_size = mrc.voxel_size.x
-
-                    # Stack coords from all selected objects in one go
-                    #all_coords = np.vstack([obj.coords for obj in selected_objects])
-                    choice_array = np.zeros(shape_zyx, dtype=np.int8)
-                    #go through each object, obtain coordinates, and set pixel value to the label value
-                    for object in selected_objects:
-                        zcoords, ycoords, xcoords = object.coords[:, 0], object.coords[:, 1], object.coords[:, 2]
-                        choice_array[zcoords, ycoords, xcoords] = object.label
-
-                    out_path = os.path.join(output_directory, f'{tomo_id}_filtered_chosen.mrc.gz')
-                    with mrcfile.new(out_path, compression = 'gzip', overwrite=True) as new_file:
-                        new_file.set_data(choice_array)
-                        new_file.voxel_size = pix_size
-                    pbar.update(1)
             print(f'\n\nAll object data has been written to gzipped mrc files in {output_directory}!')
-        
         elif write_selections == True:
-            with tqdm(total=len(final_data), desc='Writing', unit='Tomogram', leave=True) as pbar:
-                for tomo_id, selected_objects in final_data.items():
-                    tomogram_path = data_dict.get(tomo_id)['tomogram']
-                    out_dir = os.path.join(output_directory, f'TS_{tomo_id}_membranes')
-                    os.makedirs(out_dir, exist_ok=True)
-                    pbar.set_postfix_str(f'Processing tomogram: {tomo_id}...')
-                    if tomogram_path is None:
-                        print(f'Warning: no matching tomogram found for {tomo_id}')
-                        pass
-
-                    with mrcfile.open(tomogram_path, mode='r') as mrc:
-                        shape_zyx = mrc.data.shape        # no .copy() needed for shape
-                        pix_size = mrc.voxel_size.x
-
-                    choice_array = np.zeros(shape_zyx, dtype=np.int8)
-                #go through each object, obtain coordinates, and set pixel value to the label value
-                    for object in selected_objects:
-                        zcoords, ycoords, xcoords = object.coords[:, 0], object.coords[:, 1], object.coords[:, 2]
-                        choice_array[zcoords, ycoords, xcoords] = 1
-                        #write the object into mrc.gz file then reset choice array to 0
-                        out_path = os.path.join(out_dir, f'TS_{tomo_id}_obj{object.label}.mrc') #could change this to mrc.gz -> for the purpsoe of doing membrain, will leave it as mrc - will change to give user an option
-                        with mrcfile.new(out_path, overwrite=True) as new_file:
-                            new_file.set_data(choice_array)
-                            new_file.voxel_size = pix_size
-                        choice_array = np.zeros(shape_zyx, dtype=np.int8) #reset array for next object
-                    pbar.update(1)
             print(f'\n\nAll selected objects have been written to mrc files in {output_directory}!')
 
         return None
-    else:
-        #if write_selections is true
-        #go through each segmentation file in the list
-        #get the objects, and write out each object as a separate mrc file in the output directory - this is for the purpose of doing membrane sampling, where we want to sample across each object separately
-        if write_selections == True:
-            print(f'\n\nWriting out each selected object as a separate mrc file in {output_directory} for membrane sampling...')
-            with tqdm(total=len(data_dict.keys()), desc='Writing', unit='Tomogram', leave=True) as pbar:
-                for tomo_id, data in data_dict.items():
-                    pbar.set_postfix_str(f'Processing tomogram: {tomo_id}...')
-                    segmentation_path = data_dict.get(tomo_id)['segmentation']
-                    with mrcfile.open(segmentation_path, mode='r') as mrc:
-                        segmentation = mrc.data.copy()
-                        shape_zyx = segmentation.shape
-                        pix_size = mrc.voxel_size.x  # avoid re-opening for voxel size
-                    objects_dict, _ = utils.object_extraction(segmentation)
-                    out_dir = os.path.join(output_directory, f'TS_{tomo_id}_membranes')
-                    os.makedirs(out_dir, exist_ok=True)
-                    for object in objects_dict.values():
-                        choice_array = np.zeros(shape_zyx, dtype=np.int8)
-                        zcoords, ycoords, xcoords = object.coords[:, 0], object.coords[:, 1], object.coords[:, 2]
-                        choice_array[zcoords, ycoords, xcoords] = 1
-                        out_path = os.path.join(out_dir, f'TS_{tomo_id}_obj{object.label}.mrc') #could change this to mrc.gz -> for the purpsoe of doing membrain, will leave it as mrc - will change to give user an option
-                        with mrcfile.new(out_path, overwrite=True) as new_file:
-                            new_file.set_data(choice_array)
-                            new_file.voxel_size = pix_size
-                        pbar.update(1)
-            print(f'\n\nAll selected objects have been written to mrc files in {output_directory}!')
-            
-        else:
-            print(f'\n\nThe files have remained unchanged and are located in {os.path.dirname(filtered_seg_list[0])}!')
-        return None
-
-
-
+    
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
 def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None, output_dir=None):
@@ -789,7 +845,11 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
                 per_tomo_data = pd.DataFrame.from_dict({})
                 # --- open up segmentation file and extract pixel size and data
                 with mrcfile.open(file) as mrc:
-                    mrc_data = mrc.data.copy()
+                    #No .copy(): mrcfile has already read the file into its own
+                    #array, so copying it only doubles the peak. The array stays
+                    #valid after the handle closes (it owns its buffer); it is
+                    #read-only, which regionprops is perfectly happy with.
+                    mrc_data = mrc.data
                     shape_zyx = mrc_data.shape
                     pixel_size = mrc.voxel_size.x
                 # Obtain objects from segmentations
@@ -797,16 +857,44 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
                 tomo_name = utils.get_mgraph(file, caller='particle_extract') #this is .tomostar file
 
                 for object in objects_dict.values():
-                    object_array = np.zeros(shape=shape_zyx, dtype=np.int8)
-                    object_coords = object.coords #in zyx
-                    zcoords, ycoords, xcoords = object.coords[:, 0], object.coords[:, 1], object.coords[:, 2]
-                    object_array[zcoords, ycoords, xcoords] = 1
+                    #Work on a crop around the object rather than a
+                    #tomogram-sized array. The old version allocated a full
+                    #volume per object and then smoothed `.astype(float)` —
+                    #float64 — which is 11 GB for a 700x1400x1400 tomogram, for
+                    #every object in turn.
+                    #
+                    #The crop is safe because a Gaussian has finite reach:
+                    #scipy truncates the kernel at `truncate` (4.0 by default)
+                    #standard deviations, so with sigma=3.0 no voxel influences
+                    #another more than 12 away. Padding the bounding box by more
+                    #than that means the smoothed values anywhere near the
+                    #object — which is everywhere the surface can appear — are
+                    #identical to smoothing the whole tomogram.
+                    min_z, min_y, min_x, max_z, max_y, max_x = object.bbox
+                    pad = 16
+                    z0, y0, x0 = max(min_z - pad, 0), max(min_y - pad, 0), max(min_x - pad, 0)
+                    z1 = min(max_z + pad, shape_zyx[0])
+                    y1 = min(max_y + pad, shape_zyx[1])
+                    x1 = min(max_x + pad, shape_zyx[2])
+
+                    object_array = np.zeros((z1 - z0, y1 - y0, x1 - x0), dtype=np.int8)
+                    #`object.image` is this object's mask within its own bounding
+                    #box, so it drops straight in — same result as painting the
+                    #object's coordinates one at a time, without building the
+                    #coordinate array.
+                    object_array[min_z - z0:max_z - z0,
+                                 min_y - y0:max_y - y0,
+                                 min_x - x0:max_x - x0] = object.image
                     #gaussian smooth all of the objects in the mrc files
                     smooth_object = gaussian_filter(object_array.astype(float), sigma=3.0)
 
                     # -- Perform marching cubes and particle extraction
                     #This creates a triangular mesh
                     verts, _, normals, _ = marching_cubes(volume=smooth_object)
+                    #Marching cubes worked in the crop's own coordinates, so
+                    #shift the vertices back into full-tomogram zyx coordinates.
+                    #Normals are directions, so translation leaves them alone.
+                    verts = verts + np.array([z0, y0, x0], dtype=verts.dtype)
                     # -- enforce grid sampling here
                     particle_dict = sampling.non_random_membrane_sampling(coords=verts, normal_vectors=normals, grid_sampling=sample_rate)
                     # -- calculate euler angles and other data needed for star file
@@ -818,7 +906,7 @@ def particle_extract(sample_rate: int, cmm: bool, input_dir=None, input_job=None
                 #Write out angles plots for each tomogram
                 plotting.plot_angles(star_data=tomogram_star_df, output_dir=output_directory, tomogram_name=tomo_name)
                 # --- Write out star files per tomogram
-                starfile.write(tomogram_star_df, f'{output_directory}/{tomo_name.strip(".tomostar")}.star')
+                starfile.write(tomogram_star_df, f'{output_directory}/{tomo_name.removesuffix(".tomostar")}.star')
                 total_star_df = pd.concat([total_star_df, tomogram_star_df], ignore_index=True)
                 # --- Write out .cmm files
                 if cmm == True:
@@ -925,7 +1013,10 @@ def decompress(input_dir=None, input_job=None, output_dir=None, non_interactive=
             #open up file and copy data
             if mgraph in choices:
                 with mrcfile.open(file, mode='r') as mrc:
-                    data = mrc.data.copy()
+                    #No .copy(): mrcfile already decompressed the file into its
+                    #own array, and that array stays valid after the handle
+                    #closes. Copying it just doubled peak memory for no gain.
+                    data = mrc.data
                     pix_size = mrc.voxel_size.x
                 with mrcfile.new(out_path, overwrite=True) as newmrc:
                     newmrc.set_data(data)
@@ -939,9 +1030,9 @@ def decompress(input_dir=None, input_job=None, output_dir=None, non_interactive=
             #get mgraph name
             mgraph = utils.get_mgraph(segmentation_file_path=file, caller='decompress')
             out_path = os.path.join(output_directory, f'TS_{mgraph}_decompressed.mrc')
-            #open up file and copy data
+            #open up file and read the data (see the note above on the .copy())
             with mrcfile.open(file, mode='r') as mrc:
-                data = mrc.data.copy()
+                data = mrc.data
                 pix_size = mrc.voxel_size.x
             with mrcfile.new(out_path, overwrite=True) as newmrc:
                 newmrc.set_data(data)
@@ -1013,15 +1104,20 @@ def convert(input_dir, output_dir=None, data_type = None, non_interactive=False)
             output_file = f'{tomo_file_parts[0]}_{tomo_file_parts[1]}_f32.mrc'
 
             with mrcfile.open(file, mode='r') as f:
-                data = f.data.copy()
+                #No .copy(): mrcfile's array already owns its buffer and stays
+                #valid after the handle closes, so the copy was pure overhead.
+                data = f.data
+                pix_size = f.voxel_size.x
 
-            #convert to float 32
-            data_32 = data.astype(np.float32)
+            #convert to float 32. copy=False means a tomogram that is *already*
+            #float32 is passed straight through instead of being duplicated —
+            #which for a 5.5 GB volume is the difference between 5.5 and 11 GB.
+            data_32 = data.astype(np.float32, copy=False)
 
             #write output
             with mrcfile.new(os.path.join(output_directory, output_file)) as mrc:
                 mrc.set_data(data_32)
-                mrc.voxel_size = 10
+                mrc.voxel_size = pix_size
                 pbar.update(1)
         print(f'All files have been converted and written to {output_directory}!')
 

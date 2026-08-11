@@ -7,6 +7,7 @@ outputs/*
 **/tests/
 ./tests/*
 dist/*
+build/
 env.yml
 Notebooks/*
 *notebook*/*

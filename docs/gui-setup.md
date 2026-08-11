@@ -21,12 +21,26 @@ Work through them in that order.
 
 ```bash
 conda env create -f PickMe.yml
-conda activate pickme
+conda activate PickMe
 ```
 
 That is it. `PickMe.yml` installs the package itself with `pip --no-deps` on
 purpose, so pip cannot reach in and swap out the Qt libraries conda just
 installed.
+
+### The container is the other supported path
+
+If conda has failed you — most likely on an HPC cluster, where the solver
+crawls on a shared filesystem and you have no root — skip conda entirely and
+use the container. It ships the whole stack, including the X11/OpenGL
+libraries, already solved:
+
+```bash
+apptainer exec container/PickMe.sif PickMe -h
+```
+
+See [`../container/README.md`](../container/README.md) for building the image,
+starting a container, and working inside one.
 
 ### Why not `pip install PickMe-EM`?
 
@@ -39,6 +53,24 @@ loads but shows nothing.
 
 If you install with pip, install into an environment with no conda-provided Qt.
 Do not mix.
+
+**The GUI stack is an optional extra for pip installs**, so a headless machine
+never has to resolve napari or Qt at all:
+
+```bash
+pip install PickMe-EM            # headless: filter_objects, particle_extraction,
+                                 # decompress, convert. No napari, no Qt, no OpenGL
+pip install "PickMe-EM[gui]"     # adds napari, napari-skimage, qtpy, PyQt6, vispy
+```
+
+This is deliberate: resolving an OpenGL stack a compute node can never use was
+a significant part of what made cluster installs slow and fragile. The conda
+path is unaffected — `PickMe.yml` installs the GUI packages directly, so the
+GUI remains default-installed there.
+
+If you install without `[gui]` and then answer "yes" at the object-selection
+prompt, PickMe tells you exactly what to install rather than raising a bare
+`ModuleNotFoundError`.
 
 ### What is pinned, and why
 

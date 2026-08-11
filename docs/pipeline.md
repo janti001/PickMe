@@ -24,7 +24,7 @@ subfolder name does **not** always match the subcommand name:
 
 | Subcommand | Job directory |
 |---|---|
-| `extract_objects` | `outputs/filter/` |
+| `filter_objects` | `outputs/filter/` |
 | `choose_objects` | `outputs/choose/` |
 | `particle_extraction` | `outputs/particle_extraction/` |
 | `decompress` | `outputs/decompress/` |
@@ -36,7 +36,7 @@ three digits (`job001`, `job002`, ...).
 **The job counter is shared across the whole output root, not per stage.**
 Every time any subcommand needs a new job number, PickMe scans *every*
 `jobNNN` folder anywhere under the output root — across all five stages —
-and picks `max(all existing numbers) + 1`. So if you've run `extract_objects`
+and picks `max(all existing numbers) + 1`. So if you've run `filter_objects`
 three times (`filter/job001`, `job002`, `job003`) and then run
 `choose_objects` for the first time, you get `choose/job004`, not
 `choose/job001`. Job numbers tell you *when* something ran relative to
@@ -55,7 +55,7 @@ flowchart TD
     seg["Segmentation files\n(*segment* in --input-dir)"]
     tomo["Reconstructed tomograms\n(--input-dir)"]
 
-    seg -->|extract_objects| filterJob["outputs/filter/jobNNN\n*_filtered.mrc.gz"]
+    seg -->|filter_objects| filterJob["outputs/filter/jobNNN\n*_filtered.mrc.gz"]
 
     filterJob -->|"choose_objects\n(default: latest filter job, *filtered*)"| chooseJob["outputs/choose/jobNNN\n*_filtered_chosen.mrc.gz"]
     tomo -.->|"--input-dir (for napari display)"| chooseJob
@@ -99,7 +99,7 @@ is not part of this resolution chain.
 2. else `--input-dir <dir>` if given.
 3. neither given → error.
 
-**`extract_objects`** and **`convert`** don't chain off a previous stage —
+**`filter_objects`** and **`convert`** don't chain off a previous stage —
 they always read straight from whatever `--input-dir` you point them at.
 
 ## When to use `--input-job` vs `--input-dir`
@@ -113,7 +113,7 @@ it always overrides `--input-dir` when both are present.
 
 Reach for **`--input-dir <dir>`** when your input didn't come from a PickMe
 job at all — segmentations from an external tool, a hand-curated directory,
-or the very first `extract_objects` call where there's no earlier stage to
+or the very first `filter_objects` call where there's no earlier stage to
 point at.
 
 Leaving both off relies on the default "latest job of the previous stage"
@@ -160,7 +160,7 @@ with the matching reconstructed tomograms `TS_1007.mrc`.
 
 **1. Extract and filter objects.**
 ```bash
-PickMe extract_objects --input-dir ./segmentations
+PickMe filter_objects --input-dir ./segmentations
 ```
 Answer `n` at the tomogram-selection prompt to process everything. This
 writes `outputs/filter/job001/TS_1007_filtered.mrc.gz` and a knee-detection
@@ -213,7 +213,7 @@ combine this with answering `n` at the object-selection prompt to export
 *every* filtered object without hand-picking any of them.
 
 **Viewing intermediate results in ChimeraX.** Every compressed stage output
-(`.mrc.gz` from `extract_objects` or `choose_objects`) is opaque to
+(`.mrc.gz` from `filter_objects` or `choose_objects`) is opaque to
 Chimera/ChimeraX. Use `decompress` to get a plain `.mrc` you can open
 directly:
 ```bash
