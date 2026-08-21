@@ -183,6 +183,73 @@ def check_display():
     return message
 
 
+# Renderer name fragments that identify a software (CPU) OpenGL rasterizer
+# rather than a real GPU. Lowercase, matched as a substring of GL_RENDERER.
+_SOFTWARE_RENDERERS = ('llvmpipe', 'softpipe', 'swrast', 'software rasterizer')
+
+
+def check_render_backend(viewer):
+    """Warn if the viewer's OpenGL context is a software rasterizer.
+
+    napari's 2D slice view and its 3D volume view are not equally demanding:
+    3D pushes a large texture and an active ray-marching shader through
+    OpenGL, where 2D only blits image slices. Software rasterizers (Mesa
+    `llvmpipe`/`softpipe`, `swrast`) - the fallback this project's own
+    `docs/gui-setup.md` recommends for WSL when GPU passthrough is missing -
+    are known to handle the 2D path fine and then fail partway through
+    building the 3D volume texture, leaving vispy's GLIR command queue
+    referencing a buffer the driver never finished creating::
+
+        RuntimeError: Cannot SIZE object 44 because it does not exist
+
+    napari reports that as a napari/vispy version mismatch, which - per
+    `release_viewer`'s docstring above - it is not; this is the second,
+    unrelated cause of the same GLIR error. There is no reliable way to
+    detect this before the user actually toggles to 3D (the failure is deep
+    inside vispy's draw call), so this only warns up front, once, right
+    after the viewer opens, rather than trying to intercept the crash.
+
+    This is diagnostic only. It cannot make software rendering handle 3D
+    volumes; it can only tell the user why it might not before they hit it.
+
+    Args:
+        viewer (napari.Viewer): The freshly-created viewer to inspect. Must
+            already have an OpenGL context (i.e. called after
+            `napari.Viewer()`, not before).
+
+    Returns:
+        str or None: The GL_RENDERER string if it looks like software
+        rendering, otherwise None - including when the renderer could not be
+        determined at all. Never raises; a failed check is not worth
+        blocking a run over.
+    """
+    try:
+        from vispy.gloo import gl
+
+        scene_canvas = viewer.window._qt_viewer.canvas._scene_canvas
+        scene_canvas.set_current()
+        renderer = gl.glGetParameter(gl.GL_RENDERER)
+    except Exception:
+        return None
+
+    if isinstance(renderer, bytes):
+        renderer = renderer.decode('utf-8', 'replace')
+    renderer = str(renderer)
+
+    if not any(marker in renderer.lower() for marker in _SOFTWARE_RENDERERS):
+        return None
+
+    print(
+        f"[PickMe] WARNING: napari's OpenGL renderer is '{renderer}', a "
+        'software (CPU) rasterizer rather than a GPU. 2D slice viewing is '
+        'fine, but toggling to 3D is known to crash software rasterizers '
+        "with a vispy 'Cannot SIZE object ... because it does not exist' "
+        'error - this looks like a napari/vispy version mismatch but is '
+        f'not. {DOCS_HINT}'
+    )
+    return renderer
+
+
 def release_viewer(viewer):
     """Shut a viewer down so its canvas stops being vispy's draw target.
 

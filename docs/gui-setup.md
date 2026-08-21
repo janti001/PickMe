@@ -149,6 +149,40 @@ PickMe choose_objects --input-dir /path/to/tomograms
 It is slower, but it works, and for clicking a handful of objects that is a
 perfectly good trade.
 
+#### 3D volume view crashes
+
+If the viewer opens and 2D slice viewing works, but toggling to **3D** in
+napari crashes with a long traceback ending in something like:
+
+```
+RuntimeError: Cannot SIZE object 44 because it does not exist
+```
+
+napari will report this as a "version mismatch between vispy and napari."
+It usually is not. 3D volume rendering pushes far more through OpenGL than
+2D slice viewing - a large 3D texture and an active shader - and a software
+rasterizer (`llvmpipe`/`softpipe`/`swrast`, which is exactly what
+`LIBGL_ALWAYS_SOFTWARE=1` above gives you, or whatever WSL's GPU passthrough
+falls back to when it can't do better) can handle 2D fine and then fail
+partway through building the 3D texture. PickMe prints a warning right after
+the viewer opens if it detects this:
+
+```
+[PickMe] WARNING: napari's OpenGL renderer is 'llvmpipe (...)', a software
+(CPU) rasterizer rather than a GPU. 2D slice viewing is fine, but toggling to
+3D is known to crash software rasterizers ...
+```
+
+There is no software fix for a software rasterizer's 3D texture limits.
+Options:
+
+- Stick to 2D slice viewing for object selection - it does not need 3D.
+- Get real GPU passthrough working for WSL (recent WSLg + up-to-date GPU
+  drivers on the Windows side), so Qt does not fall back to
+  `LIBGL_ALWAYS_SOFTWARE`.
+- Run `choose_objects` on a machine with a real GPU instead (see the HPC
+  workflow split below - the same idea applies to any machine without one).
+
 ### HPC clusters
 
 This is the important one, and it is a **workflow constraint, not a bug**.
@@ -235,6 +269,7 @@ Then pick objects interactively, somewhere with a display, in between.
 | `qt.qpa.plugin: Could not load the Qt platform plugin "xcb"` | No display, or missing X libraries | Section 2 — check `$DISPLAY`; on HPC use `ssh -X` or an interactive job |
 | Window opens, then segfaults | Mixed pip and conda Qt | Recreate the environment from `PickMe.yml` |
 | "Could not create OpenGL context" on WSL | GPU passthrough not giving Qt OpenGL 3.3 | `export LIBGL_ALWAYS_SOFTWARE=1` |
+| Viewer opens and 2D works, but toggling to 3D crashes with `Cannot SIZE object ... does not exist` | Software OpenGL rasterizer (e.g. `llvmpipe`) failing on a 3D volume texture, not a version mismatch | See [3D volume view crashes](#3d-volume-view-crashes) above - stick to 2D, or get real GPU passthrough |
 | `[PickMe] WARNING: expected napari-skimage ...` | Unpinned environment | Recreate from `PickMe.yml` |
 | Viewer opens, you click rows, nothing is selected | napari-skimage moved its widgets | Check the version against the pins above; the shim lives in `src/PickMe/gui/napari_compat.py` |
 | `[PickMe] Could not find regionprops table` | Run/Analyse not clicked yet, or a version mismatch | Click Run in the widget first; if it persists, check versions |
