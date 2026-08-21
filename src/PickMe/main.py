@@ -444,6 +444,11 @@ def choose_object(input_dir:str, segmentation_dir = None, input_job=None, output
         #instantiate the napari viewer
         viewer = napari.Viewer()
 
+        #Warn up front if 3D toggling is likely to crash - only detectable
+        #once the viewer (and its OpenGL context) exists. See
+        #napari_compat.check_render_backend for why this matters.
+        napari_compat.check_render_backend(viewer)
+
         #Load all tomograms and their segmentations into napari viewer.
         #
         #Every layer added here stays resident until the viewer closes, so this
