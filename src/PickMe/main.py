@@ -77,9 +77,9 @@ def _tomogram_shape_and_voxel_size(path):
 def _open_tomogram_for_display(path):
     """Open a tomogram for napari without reading it all into memory.
 
-    A float32 tomogram at 1024x1440x500 is about 3 GB, and `choose_object`
-    keeps every tomogram in the input directory open at once. Reading them in
-    full exhausts RAM on a modest machine long before the viewer is shown.
+    A float32 tomogram at 1024x1440x500 is about 3 GB. Reading one in full
+    just to display a few slices of it wastes RAM, and on a modest machine
+    can exhaust it before the viewer is even shown.
     Memory-mapping instead leaves the voxels on disk and lets napari page in
     only the slices it actually draws.
 
@@ -307,10 +307,12 @@ def choose_object(
     objects that already passed the volume-based knee filter in
     `filter_objects`:
 
-    - **yes**: Opens a napari viewer (with the napari-skimage Regionprops
-      widget) loaded with each tomogram and its filtered segmentation, and
-      blocks on `napari.run()` until the viewer window is closed. Labels
-      selected in the Regionprops table are kept. After the viewer closes,
+    - **yes**: Opens a napari viewer showing one tomogram and its filtered
+      segmentation at a time (switch with the "PickMe objects" dock panel),
+      and blocks on `napari.run()` until the viewer window is closed. The
+      user clicks an object to select it (it turns green) or clicks again to
+      deselect; dragging pans or rotates without selecting. Selections are
+      remembered per tomogram while switching. After the viewer closes,
       the kept objects are written out — as a single gzip-compressed
       `<tomo_id>_filtered_chosen.mrc.gz` per tomogram (voxels set to each
       object's label value) if `write_selections` is False, or as individual
@@ -359,11 +361,12 @@ def choose_object(
             disk (or left untouched) as described above.
 
     Note:
-        Every tomogram found is loaded into the viewer at once and stays there
-        until it closes. Tomograms are memory-mapped so their voxels stay on
-        disk, but segmentations are gzip-compressed and must be decompressed
-        into RAM, so peak memory still scales with the number of tomograms in
-        the input directory.
+        Only one tomogram is in the viewer at a time; switching tomogram
+        unloads the previous one. Tomograms are memory-mapped so their voxels
+        stay on disk, while the gzip-compressed segmentation must be
+        decompressed into RAM. Peak memory is therefore about one tomogram's
+        segmentation plus whatever slices napari draws, independent of how
+        many tomograms are in the input directory.
 
     Note:
         Unless `non_interactive` is set, this function prompts via `input()`
@@ -437,7 +440,7 @@ def choose_object(
 
     if ask_user == True:
         # Imports - remove it from top level as these are only needed if user wants to select specific objects and we want to avoid unnecessary imports if they don't
-        # (Qt itself is only touched inside gui/napari_compat.py.)
+        # (Qt itself is only touched inside the gui/ subpackage.)
         #
         # The GUI stack is an optional extra: `pip install PickMe-EM` deliberately
         # leaves napari and Qt out so headless and cluster installs stay small, and
@@ -456,9 +459,11 @@ def choose_object(
         except ImportError as error:
             message = (
                 "Object selection needs the optional GUI dependencies (napari, "
-                "napari-skimage, qtpy, PyQt6, vispy), and they are not installed "
+                "qtpy, vispy, and PyQt5 or PyQt6), and they are not installed "
                 f"in this environment — {error}.\n"
                 '  Install them with:  pip install "PickMe-EM[gui]"\n'
+                '  (or, where PyQt5 is required, e.g. older HPC clusters:  '
+                'pip install "PickMe-EM[gui-pyqt5]")\n'
                 "  or recreate the conda environment from PickMe.yml, which "
                 "installs them by default.\n"
                 "  On a cluster, or any machine without a display, pass "
@@ -469,12 +474,15 @@ def choose_object(
             print(f"[PickMe] ERROR: {message}")
             raise RuntimeError(message) from error
 
-        # Check the GUI stack before opening a window. napari-skimage is driven
-        # through private Qt internals (see gui/napari_compat.py), so a version
-        # outside the pinned range is reported here rather than showing up later
-        # as an empty selection.
+        # Check the GUI stack before opening a window, so a napari version
+        # outside the pinned range is reported up front rather than surfacing
+        # later as an obscure error deep inside napari.
         napari_compat.check_gui_versions()
         napari_compat.check_display()
+
+        # picker.py imports napari and Qt at module level, so it is imported
+        # here - inside the GUI branch - and never when PickMe starts.
+        from .gui.picker import ObjectPicker
 
         # instantiate the napari viewer
         viewer = napari.Viewer()
@@ -484,199 +492,51 @@ def choose_object(
         # napari_compat.check_render_backend for why this matters.
         napari_compat.check_render_backend(viewer)
 
-        # Load all tomograms and their segmentations into napari viewer.
-        #
-        # Every layer added here stays resident until the viewer closes, so this
-        # loop holds the whole input directory in memory at once. Tomograms are
-        # memory-mapped (see _open_tomogram_for_display) so their voxels stay on
-        # disk; the mapping is only valid while its handle is open, so handles
-        # are collected here and closed after napari.run() returns rather than
-        # by a `with` block.
-        open_tomogram_handles = []
-
-        for tomogram_id, data in data_dict.items():
-            handle, tomogram_data = _open_tomogram_for_display(data["tomogram"])
-            if handle is not None:
-                open_tomogram_handles.append(handle)
-
-            # Segmentations are gzip-compressed (.mrc.gz), and compressed data
-            # cannot be memory-mapped — it has to be decompressed into RAM.
-            # They are int8 label arrays, so roughly a quarter the size of the
-            # float32 tomogram they came from.
-            with mrcfile.open(data["segmentation"], mode="r") as f:
-                segmentation_data = f.data.copy()
-
-            viewer.add_image(
-                tomogram_data,
-                name=tomogram_id,
-                contrast_limits=_sampled_contrast_limits(tomogram_data),
-            )
-            viewer.add_labels(segmentation_data, name=f"{tomogram_id}_segmentation")
-
-        # --- Interfacing with napari to select objects of interest directly from napari
-        # Maps  tomo_id -> set of selected label IDs
-        selections: dict[str, set[int]] = {tomo_id: set() for tomo_id in data_dict}
-
-        def _analysed_tomo_id() -> str | None:
-            """Return the tomo_id of the labels layer the table describes.
-
-            Asks the plugin which layer it last analysed, rather than which
-            layer the viewer has active — the table's rows belong to the
-            analysed layer, and the active layer changes every time the user
-            clicks something else in the layer list.
-            """
-            layer = napari_compat.analysed_labels_layer(plugin_widget)
-            if layer is None:
-                layer = viewer.layers.selection.active  # fallback
-            if layer is not None and "_segmentation" in getattr(layer, "name", ""):
-                return layer.name.replace(
-                    "_segmentation", ""
-                )  # this just ensures that we have the tomogram id - TS_xyxy
-            return None
-
-        # ── connect to the table after the user clicks Analyze ──────────────────────────
-        # Raises NapariCompatError, naming the expected version, if the widget has moved.
-        _, plugin_widget = napari_compat.add_regionprops_widget(viewer)
-
-        _connected_table = (
-            None  # hold a reference so we can reconnect on subsequent runs
-        )
-        _label_column = None  # which column of the table holds the label ID
-
-        def _on_analysis_finished():
-            """Wire PickMe into the results table after each Analyze run."""
-            nonlocal _connected_table, _label_column
-
-            table = napari_compat.find_regionprops_table(viewer, plugin_widget)
-            if table is None:
-                print(
-                    "[PickMe] Could not find the regionprops table — click Analyze first."
-                )
-                # Debug helper: print what dock widgets exist
-                print(
-                    f"[PickMe] Current dock widgets: {napari_compat.dock_widget_names(viewer)}"
-                )
-                return
-
-            # The label column moves depending on which properties were ticked,
-            # because regionprops_table sorts its columns alphabetically.
-            _label_column = napari_compat.find_label_column(table)
-            headers = napari_compat.table_headers(table)
-            if _label_column is None:
-                print(
-                    "[PickMe] WARNING: no 'label' column in the results table "
-                    f"(columns: {headers}). Tick 'label' in the plugin's "
-                    "Properties list, then click Analyze again — selections "
-                    "cannot be matched to objects without it."
-                )
-                return
-
-            # Reconnect only when the table object itself changed; connecting
-            # twice to the same table would fire the handler twice per click.
-            if _connected_table is not table:
-                if _connected_table is not None:
-                    try:
-                        _connected_table.selectionModel().selectionChanged.disconnect(
-                            _on_selection_changed
-                        )
-                    except (RuntimeError, TypeError):
-                        pass
-                _connected_table = table
-                napari_compat.configure_table_selection(table)
-                table.selectionModel().selectionChanged.connect(_on_selection_changed)
-
-            print(
-                f"[PickMe] Table connected for {_analysed_tomo_id()}. "
-                f"Columns: {headers} (label in column {_label_column}). "
-                "Click rows to choose objects; ctrl/cmd-click or shift-click "
-                "for several."
-            )
-
-        def _on_selection_changed(*_args):
-            """Fired whenever the user clicks or deselects rows in the table."""
-            tomo_id = _analysed_tomo_id()
-            if tomo_id is None or tomo_id not in selections or _connected_table is None:
-                return
-            if _label_column is None:
-                return
-
-            if not napari_compat.table_is_alive(_connected_table):
-                # The viewer is closing — whatever was selected before the
-                # window went away is still the user's answer.
-                return
-
-            indexes = _connected_table.selectedIndexes()
-            if not indexes:
-                # Qt also fires an empty selection just before it repopulates or
-                # destroys the table, and at this instant that is indistinguishable
-                # from the user deselecting everything. Clearing now would throw
-                # away a selection they had already made, so re-check on the next
-                # event-loop tick, once the repopulation or teardown has finished.
-                napari_compat.defer(_confirm_deselection)
-                return
-
-            labels = set()
-            for row in {index.row() for index in indexes}:
-                label = napari_compat.read_label_cell(
-                    _connected_table, row, _label_column
-                )
-                if label is not None:
-                    labels.add(label)
-
-            selections[tomo_id] = labels
-            print(f"[PickMe] {tomo_id} → selected labels: {sorted(labels)}")
-
-        def _confirm_deselection():
-            """Clear a tomogram's selection, but only if the user really did."""
-            tomo_id = _analysed_tomo_id()
-            if tomo_id is None or tomo_id not in selections or _connected_table is None:
-                return
-            if not napari_compat.table_is_alive(_connected_table):
-                return  # viewer closed — keep what was selected
-            if _connected_table.selectedIndexes():
-                return  # something is selected after all
-            if _connected_table.model().rowCount() == 0:
-                return  # the table was emptied, not deselected
-            if not selections[tomo_id]:
-                return  # nothing to clear, no need to say so
-            selections[tomo_id] = set()
-            print(f"[PickMe] {tomo_id} → selection cleared")
-
-        connected_via = napari_compat.connect_analysis_finished(
-            plugin_widget, _on_analysis_finished
-        )
-        if connected_via is None:
-            print(
-                "[PickMe] WARNING: could not connect to the plugin — no Analyze "
-                "button or `called` signal was found, so selections cannot be "
-                f"recorded. {napari_compat.DOCS_HINT}"
-            )
-        else:
-            print(f"[PickMe] Listening for regionprops runs via the {connected_via}.")
-            print(
-                "[PickMe] In napari: pick the labels layer, tick at least "
-                "'label' under Properties, click Analyze, then select rows in "
-                "the Results Table. Close the viewer when you are done."
-            )
-
         # ── launch ───────────────────────────────────────────────────────────────────
+        picker = None
         try:
+            # The picker shows ONE tomogram (memory-mapped) and its
+            # segmentation at a time, swapping layers when the user switches
+            # tomogram in its dock panel, so peak memory is about one
+            # tomogram's worth however many are in the input directory.
+            # Loader helpers are passed in rather than imported by picker.py,
+            # which would otherwise have to import main.py back (circular).
+            picker = ObjectPicker(
+                viewer,
+                data_dict,
+                open_tomogram=_open_tomogram_for_display,
+                contrast_limits=_sampled_contrast_limits,
+            )
+            print(
+                "[PickMe] In napari: click an object to select it (it turns "
+                "green); click it again to deselect. Dragging pans/rotates "
+                "without selecting. Switch tomogram with the 'PickMe objects' "
+                "panel on the right, and close the viewer when you are done."
+            )
             napari.run()  # blocks here
         finally:
+            # Order matters. The picker first removes its layers from the
+            # viewer and only then closes the tomogram's memory-map handle -
+            # a memmap is only valid while its handle is open. The selection
+            # is written out below by re-reading segmentations from disk, so
+            # nothing after this depends on the mapped arrays.
+            #
             # Releasing the viewer is required for correctness, not tidiness: a
             # viewer left registered with vispy makes the *next* viewer in the
             # same session fail to render ("Cannot SIZE object N because it does
             # not exist"). See napari_compat.release_viewer for the mechanism.
-            # In `finally` so a crash inside the GUI cannot leak the canvas.
-            napari_compat.release_viewer(viewer)
+            # It sits in its own `finally` so that neither a crash inside the
+            # GUI nor a failure in picker.close() can leak the canvas.
+            try:
+                if picker is not None:
+                    picker.close()
+            finally:
+                napari_compat.release_viewer(viewer)
 
-            # napari read the tomograms straight off disk through these handles,
-            # so they can only be released now the viewer is gone. The selection
-            # is written out below by re-reading the segmentations from disk, so
-            # nothing after this point depends on the mapped arrays.
-            for handle in open_tomogram_handles:
-                handle.close()
-            open_tomogram_handles.clear()
+        # Maps tomo_id -> set of selected label IDs
+        selections: dict[str, set[int]] = (
+            picker.selections() if picker is not None else {}
+        )
 
         # ── post-GUI: filter out tomograms where nothing was selected ────────────────
         final_selection = {
@@ -686,9 +546,9 @@ def choose_object(
         if not final_selection:
             print(
                 "  nothing was selected — no files will be written.\n"
-                "  To select objects: choose the labels layer, tick 'label' in "
-                "the plugin Properties list, click Analyze, then click rows in "
-                "the Results Table before closing the viewer."
+                "  To select objects: click on them in the napari view (they "
+                "turn green, and are listed in the 'PickMe objects' panel) "
+                "before closing the viewer."
             )
         for tomo, labels in final_selection.items():
             print(f"  {tomo}: {sorted(labels)}")

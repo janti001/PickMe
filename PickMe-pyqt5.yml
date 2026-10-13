@@ -1,0 +1,75 @@
+# PickMe-pyqt5.yml - conda environment using Qt5 (PyQt5) instead of Qt6.
+# For old Linux/HPC clusters whose sysadmin requires PyQt5. Laptops and
+# everything else should use PickMe.yml (PyQt6). The env is named
+# PickMe-pyqt5 so both can coexist on one machine.
+#   conda env create -f PickMe-pyqt5.yml
+#   conda activate PickMe-pyqt5
+# Everything except the Qt binding is identical to PickMe.yml.
+name: PickMe-pyqt5
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+
+  # PickMe runtime dependencies.
+  # Mirrors the floor/ceiling ranges in pyproject.toml's `dependencies` list -
+  # see the comments there for why each bound exists (they were completely
+  # unpinned before this audit, which let a fresh solve silently pick up a
+  # breaking major release). conda uses the same operators as pip here, so
+  # the ranges translate directly; keep the two files in step by hand, the
+  # same way the GUI pins below already are.
+  - numpy>=1.24
+  - pandas>=2.0,<3
+  - matplotlib>=3.7
+  - starfile>=0.4
+  - mrcfile>=1.3
+  - scikit-image>=0.22
+  - seaborn>=0.12
+  - tqdm>=4.60
+  - scipy>=1.10
+  # plotly was removed: grepping src/PickMe turns up no import of it at all -
+  # it was pure conda-solver weight with no code behind it. seaborn stayed,
+  # it is genuinely imported by plotting/knee_plot.py, plotting/plot_angles.py
+  # and main.py.
+
+  # Keep the Qt/PyQt GUI stack in conda-forge.
+  # Installing these through pip can mix incompatible Qt libraries.
+  #
+  # These are pinned tightly and deliberately. PickMe uses napari/vispy
+  # internals (gui/napari_compat.py), so an unconstrained minor upgrade can
+  # break the viewer without raising an error. Keep these in step with the ranges in
+  # pyproject.toml and SUPPORTED_VERSIONS in src/PickMe/gui/napari_compat.py.
+  #
+  # pyproject.toml now also exposes this same set as an optional pip extra
+  # (`pip install PickMe-EM[gui]`), so a plain `pip install PickMe-EM` on an
+  # HPC/batch box doesn't drag in Qt for headless-only use. That split does
+  # not affect this file: the `pip: --no-deps -e .` line below means pip
+  # never even reads pyproject.toml's dependency list, so the GUI stays
+  # unconditionally installed here, matching docs/gui-setup.md's "nothing
+  # here is optional" for the conda path.
+  - napari >=0.7.0,<0.8
+  # conda-forge's PyQt5 package is called `pyqt`.
+  - pyqt >=5.15,<5.16
+  - qt-main >=5.15,<5.16
+  - vispy >=0.16.1,<0.17
+
+  # The X11 libraries (xcb-util*, libxkbcommon) are NOT listed here on
+  # purpose. conda-forge only ships them for Linux, so naming them directly
+  # makes this file unsolvable on macOS. qt-main already pulls in the right
+  # ones for whichever platform you are installing on. If the GUI still fails
+  # to open a window after a clean install, that is a display problem rather
+  # than a packaging problem - see docs/gui-setup.md.
+
+  # Install this local package without letting pip replace conda's Qt stack.
+  - pip:
+      - "--no-deps -e ."
+
+# conda-forge's `napari` package also depends on PySide6 (a Qt6 binding), so
+# this env ends up with two Qt bindings installed. qtpy - which every Qt
+# import in PickMe goes through - picks one at import time; QT_API makes that
+# choice explicit instead of relying on qtpy's internal preference order.
+# conda sets it on `conda activate PickMe-pyqt5` and unsets it on deactivate.
+variables:
+  QT_API: pyqt5

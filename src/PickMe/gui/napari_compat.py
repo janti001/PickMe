@@ -1,22 +1,24 @@
-"""Compatibility layer for the napari / napari-skimage GUI integration.
+"""Environment checks and viewer clean-up for the napari GUI step.
 
-`choose_objects` does not talk to napari-skimage through a documented API -
-there isn't one. It reaches into the plugin's Qt widget tree to find the
-regionprops results table and the "Run" button, and it reads napari's private
-`viewer.window._dock_widgets` mapping. None of that is public, so any napari
-or napari-skimage release can change it without notice. That is the most
-likely explanation for "the same code behaves differently on a different
-machine".
+`choose_objects` drives napari through its public API (layers, mouse
+callbacks, colormaps, a dock widget of PickMe's own - see `gui/picker.py`).
+What is left here is everything around that which is environment-sensitive:
 
-Every one of those fragile accesses lives in this module, for two reasons:
+- `check_gui_versions` - compare the installed napari against the range
+  PickMe pins, and warn loudly on a mismatch instead of failing obscurely.
+- `check_display` - warn before Qt aborts on a machine with no display.
+- `check_render_backend` - warn when OpenGL is a software rasterizer, which
+  is known to crash napari's 3D view.
+- `release_viewer` - deregister the viewer's vispy canvas on close, so a
+  second viewer in the same Python session can render.
 
-1. There is one place to fix when an upstream release moves something.
-2. A version mismatch fails *loudly*, naming the versions PickMe was pinned
-   against, instead of silently selecting nothing and writing empty output.
+The last two touch napari's private `_qt_viewer.canvas._scene_canvas`
+attribute, which is why they live in this one module: there is a single
+place to fix if an upstream release moves it.
 
-Nothing here is imported at package import time. `napari` and `qtpy` are
-imported inside the functions that use them, so the headless pipeline stages
-never touch Qt.
+Nothing here is imported at package import time. `napari`, `vispy` and
+`qtpy` are imported inside the functions that use them, so the headless
+pipeline stages never touch Qt.
 
 Note:
     `SUPPORTED_VERSIONS` below must be kept in step with the pins in
@@ -32,13 +34,7 @@ import sys
 # in pyproject.toml and PickMe.yml, expressed as comparable tuples.
 SUPPORTED_VERSIONS = {
     'napari': ((0, 7, 0), (0, 8, 0)),
-    'napari-skimage': ((0, 6, 0), (0, 7, 0)),
 }
-
-# Name of the napari-skimage widget PickMe drives. If upstream renames this,
-# `add_regionprops_widget` is where you will find out.
-REGIONPROPS_PLUGIN = 'napari-skimage'
-REGIONPROPS_WIDGET = 'Regionprops (labels)'
 
 DOCS_HINT = 'See docs/gui-setup.md for the supported install path.'
 
@@ -83,7 +79,7 @@ def installed_version(package_name):
     """Look up an installed package's version.
 
     Args:
-        package_name (str): Distribution name, e.g. ``'napari-skimage'``.
+        package_name (str): Distribution name, e.g. ``'napari'``.
 
     Returns:
         str or None: The version string, or None if the package is not
@@ -100,7 +96,7 @@ def check_gui_versions(strict=False):
 
     This is the loud-failure check described in the module docstring. It runs
     before the viewer opens so a mismatch is reported up front rather than
-    surfacing later as an empty selection.
+    surfacing later as a confusing error deep inside napari.
 
     Args:
         strict (bool, optional): If True, raise `NapariCompatError` on the
@@ -203,7 +199,7 @@ def check_render_backend(viewer):
         RuntimeError: Cannot SIZE object 44 because it does not exist
 
     napari reports that as a napari/vispy version mismatch, which - per
-    `release_viewer`'s docstring above - it is not; this is the second,
+    `release_viewer`'s docstring below - it is not; this is the second,
     unrelated cause of the same GLIR error. There is no reliable way to
     detect this before the user actually toggles to 3D (the failure is deep
     inside vispy's draw call), so this only warns up front, once, right
@@ -306,361 +302,3 @@ def release_viewer(viewer):
 
     return forgotten
 
-
-def add_regionprops_widget(viewer):
-    """Dock the napari-skimage Regionprops widget into a viewer.
-
-    Args:
-        viewer (napari.Viewer): The viewer to dock the widget into.
-
-    Returns:
-        tuple: ``(dock_widget, plugin_widget)`` as returned by napari's
-        `add_plugin_dock_widget`.
-
-    Raises:
-        NapariCompatError: If the plugin or the named widget could not be
-            loaded - usually a version mismatch or a missing install.
-    """
-    try:
-        return viewer.window.add_plugin_dock_widget(
-            plugin_name=REGIONPROPS_PLUGIN,
-            widget_name=REGIONPROPS_WIDGET,
-        )
-    except Exception as error:
-        found = installed_version(REGIONPROPS_PLUGIN) or 'not installed'
-        minimum, maximum = SUPPORTED_VERSIONS[REGIONPROPS_PLUGIN]
-        raise NapariCompatError(
-            f"could not load the '{REGIONPROPS_WIDGET}' widget from "
-            f'{REGIONPROPS_PLUGIN} (found {found}, PickMe expects '
-            f'>={_join(minimum)},<{_join(maximum)}). Object selection cannot '
-            f'run without it. {DOCS_HINT}\nUnderlying error: {error}'
-        ) from error
-
-
-def iter_dock_widgets(viewer):
-    """Yield napari's dock widgets, tolerating the public/private rename.
-
-    napari has exposed this mapping as both `window.dock_widgets` and
-    `window._dock_widgets` across releases. Trying the public name first
-    means PickMe keeps working if and when the private one disappears.
-
-    Args:
-        viewer (napari.Viewer): The viewer to inspect.
-
-    Yields:
-        tuple[str, object]: ``(dock_widget_name, dock_widget)`` pairs. Yields
-        nothing if neither attribute exists.
-    """
-    dock_widgets = getattr(viewer.window, 'dock_widgets', None)
-    if dock_widgets is None:
-        dock_widgets = getattr(viewer.window, '_dock_widgets', None)
-    if dock_widgets is None:
-        print(
-            '[PickMe] WARNING: this napari build exposes neither '
-            '`dock_widgets` nor `_dock_widgets`; falling back to searching '
-            f'the plugin widget only. {DOCS_HINT}'
-        )
-        return
-
-    yield from dock_widgets.items()
-
-
-def dock_widget_names(viewer):
-    """List the names of the viewer's dock widgets, for debug output.
-
-    Args:
-        viewer (napari.Viewer): The viewer to inspect.
-
-    Returns:
-        list[str]: Dock widget names, or an empty list if napari does not
-        expose them.
-    """
-    return [name for name, _ in iter_dock_widgets(viewer)]
-
-
-def find_regionprops_table(viewer, plugin_widget):
-    """Locate the regionprops results table in the Qt widget tree.
-
-    napari-skimage builds the table as a `magicgui.widgets.Table` and docks it
-    in its *own* dock widget named "Results Table" - it is not a child of the
-    plugin's widget. Three lookups are tried, cheapest and most robust first:
-
-    1. `plugin_widget.results_table`, the attribute napari-skimage sets on its
-       own widget. This is the one that actually works today.
-    2. A `findChild` scan of the plugin widget, in case a future release nests
-       the table inside it again.
-    3. A scan of every dock widget napari has registered.
-
-    Step 3 has a trap worth naming, because it is what previously broke this
-    function: `viewer.window.dock_widgets` returns the *inner* widget of each
-    dock, so for "Results Table" the inner widget **is** the table. Qt's
-    `findChild` only searches descendants, so it returns None for a widget
-    that is itself the thing you are looking for. Each candidate is therefore
-    isinstance-checked before its children are searched.
-
-    Args:
-        viewer (napari.Viewer): The viewer, used for the dock-widget fallback
-            search.
-        plugin_widget: The widget returned by `add_regionprops_widget`.
-
-    Returns:
-        QTableView or QTableWidget or None: The table if found, otherwise
-        None. The caller decides whether that is fatal.
-    """
-    from qtpy.QtWidgets import QTableView, QTableWidget
-
-    table_classes = (QTableView, QTableWidget)
-
-    # 1. The plugin's own attribute - a magicgui Table wrapping the Qt table.
-    results_table = getattr(plugin_widget, 'results_table', None)
-    native = getattr(results_table, 'native', None)
-    if isinstance(native, table_classes):
-        print(
-            '[PickMe] Found table via the plugin\'s results_table attribute '
-            f'({type(native).__name__}).'
-        )
-        return native
-
-    # 2. Nested somewhere inside the plugin widget.
-    for table_class in table_classes:
-        table = plugin_widget.native.findChild(table_class)
-        if table is not None:
-            print(f'[PickMe] Found table in plugin widget: {table_class.__name__}')
-            return table
-
-    # 3. Any dock widget - checking each candidate itself before its children.
-    for dock_name, dock_widget in iter_dock_widgets(viewer):
-        native = getattr(dock_widget, 'native', dock_widget)
-        if isinstance(native, table_classes):
-            print(
-                f"[PickMe] Found table as dock widget: '{dock_name}' "
-                f'({type(native).__name__})'
-            )
-            return native
-        for table_class in table_classes:
-            table = native.findChild(table_class)
-            if table is not None:
-                print(
-                    f"[PickMe] Found table inside dock widget: '{dock_name}' "
-                    f'({table_class.__name__})'
-                )
-                return table
-
-    return None
-
-
-def table_headers(table):
-    """Read the table's column headers.
-
-    Args:
-        table (QTableView or QTableWidget): The results table.
-
-    Returns:
-        list[str]: One header per column. Columns with no header text become
-        empty strings.
-    """
-    from qtpy.QtCore import Qt
-
-    model = table.model()
-    if model is None:
-        return []
-    headers = []
-    for column in range(model.columnCount()):
-        value = model.headerData(column, Qt.Horizontal)
-        headers.append('' if value is None else str(value))
-    return headers
-
-
-def find_label_column(table):
-    """Find which column of the results table holds the object label.
-
-    `skimage.measure.regionprops_table` returns its columns in alphabetical
-    order, so "label" is almost never column 0 - it lands wherever the sort
-    puts it among the properties the user ticked. Assuming column 0 reads the
-    wrong property entirely (usually `area`), which is why this lookup is by
-    header name.
-
-    Args:
-        table (QTableView or QTableWidget): The results table.
-
-    Returns:
-        int or None: The zero-based column index of the "label" column, or
-        None if the user did not tick "label" in the plugin's property list.
-    """
-    for index, header in enumerate(table_headers(table)):
-        if header.strip().lower() == 'label':
-            return index
-    return None
-
-
-def read_label_cell(table, row, column):
-    """Read one label value out of the results table.
-
-    The table stores its values as *strings* ("7.0", not 7), because magicgui
-    renders the dataframe for display. `int('7.0')` raises `ValueError`, so
-    the value goes through `float` first.
-
-    Args:
-        table (QTableView or QTableWidget): The results table.
-        row (int): Zero-based row index.
-        column (int): Zero-based column index of the label column.
-
-    Returns:
-        int or None: The label, or None if the cell could not be read as a
-        number.
-    """
-    value = table.model().index(row, column).data()
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def configure_table_selection(table):
-    """Make the results table select whole rows, several at a time.
-
-    Without this the table selects individual cells, so a click registers one
-    property rather than one object. Qt's enums are addressed defensively
-    because PyQt6/PySide6 scope them one level deeper than PyQt5 does.
-
-    Args:
-        table (QTableView or QTableWidget): The results table.
-    """
-    from qtpy.QtWidgets import QAbstractItemView
-
-    selection_mode = getattr(
-        QAbstractItemView,
-        'ExtendedSelection',
-        getattr(QAbstractItemView, 'SelectionMode', None),
-    )
-    if hasattr(selection_mode, 'ExtendedSelection'):
-        selection_mode = selection_mode.ExtendedSelection
-
-    selection_behavior = getattr(
-        QAbstractItemView,
-        'SelectRows',
-        getattr(QAbstractItemView, 'SelectionBehavior', None),
-    )
-    if hasattr(selection_behavior, 'SelectRows'):
-        selection_behavior = selection_behavior.SelectRows
-
-    if selection_mode is not None:
-        table.setSelectionMode(selection_mode)
-    if selection_behavior is not None:
-        table.setSelectionBehavior(selection_behavior)
-
-
-def defer(callback):
-    """Run `callback` on the next turn of the Qt event loop.
-
-    Used to tell a real "deselect everything" apart from the empty selection
-    Qt emits just *before* it repopulates or destroys a table. Both look
-    identical at the moment they fire - the row count has not changed yet -
-    but by the next tick the repopulation or teardown has finished and the
-    two are easy to distinguish.
-
-    Args:
-        callback (callable): Called with no arguments on the next event-loop
-            iteration.
-    """
-    from qtpy.QtCore import QTimer
-
-    QTimer.singleShot(0, callback)
-
-
-def table_is_alive(table):
-    """Report whether the table's underlying Qt object still exists.
-
-    Qt objects are destroyed when the viewer window closes, but the Python
-    wrapper lingers; touching it then raises `RuntimeError`. Selections made
-    before the close are still valid, so callers use this to bail out quietly
-    rather than treating teardown as user input.
-
-    Args:
-        table (QTableView or QTableWidget): The results table.
-
-    Returns:
-        bool: True if the table can still be queried.
-    """
-    try:
-        table.model()
-    except RuntimeError:
-        return False
-    return True
-
-
-def analysed_labels_layer(plugin_widget):
-    """Return the labels layer the plugin last ran regionprops on.
-
-    This is the layer the table's rows actually describe. It is a more
-    reliable answer to "which tomogram is this selection for?" than the
-    viewer's active layer, which follows whatever the user last clicked in the
-    layer list and is not tied to the table's contents at all.
-
-    Args:
-        plugin_widget: The widget returned by `add_regionprops_widget`.
-
-    Returns:
-        napari.layers.Labels or None: The analysed layer, or None if the
-        plugin does not expose it.
-    """
-    labels_layer = getattr(plugin_widget, 'labels_layer', None)
-    return getattr(labels_layer, 'value', None)
-
-
-def find_run_button(plugin_widget):
-    """Locate the plugin's "Analyze" button.
-
-    Prefers magicgui's own `call_button`, which is the documented handle for
-    the button that runs the function. The `findChild` scans are fallbacks:
-    the plugin also has a "Save Results" button, so taking the first button in
-    the tree unconditionally can bind to the wrong one.
-
-    Args:
-        plugin_widget: The widget returned by `add_regionprops_widget`.
-
-    Returns:
-        QPushButton or None: The button if one was found, otherwise None.
-    """
-    from qtpy.QtWidgets import QPushButton
-
-    call_button = getattr(plugin_widget, 'call_button', None)
-    native = getattr(call_button, 'native', None)
-    if isinstance(native, QPushButton):
-        return native
-
-    for button in plugin_widget.native.findChildren(QPushButton):
-        if button.text().strip().lower() in ('analyze', 'analyse', 'run'):
-            return button
-
-    return plugin_widget.native.findChild(QPushButton)
-
-
-def connect_analysis_finished(plugin_widget, callback):
-    """Call `callback` every time the plugin finishes an analysis run.
-
-    magicgui emits `called` after the widget's function returns, which is
-    exactly when the results table has been filled. That is a supported API,
-    so it is tried first; wiring the button's `clicked` signal is the fallback
-    for builds that do not emit it.
-
-    Args:
-        plugin_widget: The widget returned by `add_regionprops_widget`.
-        callback (callable): Called with no arguments after each run.
-
-    Returns:
-        str or None: A short description of what was connected, for printing,
-        or None if neither route was available.
-    """
-    called = getattr(plugin_widget, 'called', None)
-    if called is not None and hasattr(called, 'connect'):
-        # magicgui passes the function's return value through; swallow it.
-        called.connect(lambda *_: callback())
-        return "magicgui 'called' signal"
-
-    run_button = find_run_button(plugin_widget)
-    if run_button is not None:
-        run_button.clicked.connect(lambda *_: callback())
-        return f"'{run_button.text()}' button"
-
-    return None

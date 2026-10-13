@@ -13,7 +13,7 @@ requires-python=">=3.12,<3.14"
 # pandas, napari, PyQt6...) already publishes wheels for 3.13 and even 3.14,
 # so nothing here is *broken* on newer interpreters as far as PyPI metadata
 # shows. But PickMe.yml pins conda to exactly python=3.12, and the GUI path
-# leans on private Qt/napari-skimage internals (see gui/napari_compat.py)
+# leans on napari/vispy internals (see gui/napari_compat.py)
 # that have only ever been run against 3.12. Capping at <3.14 keeps pip
 # installs inside the range this package has actually been exercised on,
 # without blocking 3.13, which is already in normal use. Raise this only
@@ -87,7 +87,7 @@ HomePage="https://github.com/janti001/PickMe"
 PickMe = 'PickMe.cli:main'
 
 # --- Optional GUI extra -----------------------------------------------------
-# napari/napari-skimage/Qt are only needed by `choose_objects`, and only when
+# napari/Qt are only needed by `choose_objects`, and only when
 # a user answers "yes" to opening the viewer (see the lazy `import napari`
 # inside main.py's interactive branch, and gui/napari_compat.py's module
 # docstring - nothing GUI-related is imported at package import time). The
@@ -98,10 +98,11 @@ PickMe = 'PickMe.cli:main'
 # installs fail (compiled Qt wheels, no display, etc. - see
 # docs/gui-setup.md). Moving it to an extra means:
 #   pip install PickMe-EM            -> headless only (filter/particle/etc.)
-#   pip install PickMe-EM[gui]       -> adds the pinned napari/Qt stack
+#   pip install PickMe-EM[gui]       -> adds the pinned napari + PyQt6 stack
+#   pip install PickMe-EM[gui-pyqt5] -> same, but with PyQt5 (old Linux/HPC)
 #
 # The conda path (PickMe.yml) is UNAFFECTED by this split: PickMe.yml lists
-# napari/napari-skimage/pyqt6/qt6-main directly as conda dependencies and
+# napari/pyqt6/qt6-main directly as conda dependencies and
 # installs this package with `pip --no-deps`, so pip never even looks at
 # these extras - the GUI stays default-installed there, exactly as
 # docs/gui-setup.md promises ("nothing here is optional").
@@ -113,19 +114,17 @@ PickMe = 'PickMe.cli:main'
 [project.optional-dependencies]
 gui = [
 	# --- GUI stack (napari + Qt) -------------------------------------------
-	# These are pinned much more tightly than the rest. `choose_objects`
-	# drives the napari-skimage Regionprops widget by reaching into its Qt
-	# widget tree (see src/PickMe/gui/napari_compat.py), so a single minor
-	# release of either package can silently break object selection. The
-	# ranges below are the combination PickMe is tested against; keep them in
-	# step with SUPPORTED_VERSIONS in gui/napari_compat.py and with
-	# PickMe.yml.
+	# These are pinned much more tightly than the rest. PickMe reaches into
+	# napari/vispy internals (gui/napari_compat.py: `release_viewer` uses
+	# vispy's `forget_canvas`, plus a render-backend check), so a single minor
+	# release of either package can silently break the viewer. The ranges
+	# below are the combination PickMe is tested against; keep them in step
+	# with SUPPORTED_VERSIONS in gui/napari_compat.py and with PickMe.yml.
 	#
 	# NOTE: conda-forge, not pip, is the supported install path for the GUI
 	# on Linux/WSL/HPC - pip wheels can mix incompatible Qt libraries. See
 	# docs/gui-setup.md.
 	'napari>=0.7.0,<0.8',
-	'napari-skimage>=0.6.0,<0.7',
 	'qtpy>=2.4,<3',
 	'PyQt6>=6.9,<6.12',
 	# vispy was imported directly by gui/napari_compat.py
@@ -135,5 +134,17 @@ gui = [
 	# explicitly, pinned to the same range napari 0.7.0 itself requires, so
 	# it doesn't silently break if a future napari release changes its own
 	# vispy pin.
+	'vispy>=0.16.1,<0.17',
+	]
+
+# PyQt5 variant of the `gui` extra. Use it ONLY on old Linux/HPC systems whose
+# admin requires Qt5; everywhere else prefer `gui` (PyQt6). All PickMe Qt code
+# goes through qtpy, which uses whichever binding is installed - so install
+# one of `gui` / `gui-pyqt5`, never both. Pins other than the Qt binding
+# match `gui`; PyQt5 5.15.x is the final Qt5 series.
+gui-pyqt5 = [
+	'napari>=0.7.0,<0.8',
+	'qtpy>=2.4,<3',
+	'PyQt5>=5.15.8,<5.16',
 	'vispy>=0.16.1,<0.17',
 	]

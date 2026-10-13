@@ -30,10 +30,9 @@ dependencies:
   # Keep the Qt/PyQt GUI stack in conda-forge.
   # Installing these through pip can mix incompatible Qt libraries.
   #
-  # These four are pinned tightly and deliberately. `choose_objects` drives
-  # the napari-skimage Regionprops widget through its Qt widget tree, which is
-  # private API, so an unconstrained minor upgrade can break object selection
-  # without raising an error. Keep these in step with the ranges in
+  # These are pinned tightly and deliberately. PickMe uses napari/vispy
+  # internals (gui/napari_compat.py), so an unconstrained minor upgrade can
+  # break the viewer without raising an error. Keep these in step with the ranges in
   # pyproject.toml and SUPPORTED_VERSIONS in src/PickMe/gui/napari_compat.py.
   #
   # pyproject.toml now also exposes this same set as an optional pip extra
@@ -44,7 +43,6 @@ dependencies:
   # unconditionally installed here, matching docs/gui-setup.md's "nothing
   # here is optional" for the conda path.
   - napari >=0.7.0,<0.8
-  - napari-skimage >=0.6.0,<0.7
   - pyqt6 >=6.9,<6.12
   - qt6-main >=6.9,<6.12
   - vispy >=0.16.1,<0.17
