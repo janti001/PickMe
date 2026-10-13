@@ -19,11 +19,25 @@ This module imports napari and Qt (via ``picker_widget``) at import time, so
 it must only be imported from inside the GUI branch of `choose_object`.
 """
 
+import re
+
 import mrcfile
 from napari.utils.colormaps import DirectLabelColormap
 
 from .picker_widget import PickerWidget
 from .selection import ObjectSelection, is_click, selection_colormap_dict, voxel_counts
+
+
+def _natural_sort_key(text):
+    """Splits `text` into text and integer chunks so digits sort by value.
+
+    Args:
+        text (str): A tomogram ID such as "TS_10".
+
+    Returns:
+        list: Alternating str and int chunks, e.g. ["TS_", 10, ""].
+    """
+    return [int(chunk) if chunk.isdigit() else chunk for chunk in re.split(r"(\d+)", text)]
 
 
 class ObjectPicker:
@@ -57,7 +71,9 @@ class ObjectPicker:
         self._open_tomogram = open_tomogram
         self._contrast_limits = contrast_limits
 
-        self._tomo_ids = sorted(data_dict)
+        # Natural sort, so "TS_2" comes before "TS_10" (a plain string sort
+        # puts "10" first).
+        self._tomo_ids = sorted(data_dict, key=_natural_sort_key)
         self._selection = ObjectSelection(self._tomo_ids)
         # {tomo_id: {label: voxel_count}} - a few numbers per object, so cheap
         # to keep for every tomogram visited, and saves re-counting on return.
@@ -90,10 +106,38 @@ class ObjectPicker:
         if tomo_id == self.current_id:
             return
 
+        previous_id = self.current_id
         message = f"Loading {tomo_id}…"
         print(f"[PickMe] {message}")
         self.widget.set_status(message)
 
+        try:
+            self._load(tomo_id)
+        except Exception as error:
+            # A corrupt or mismatched file must not leave the viewer half
+            # loaded (a layer showing, a memmap handle open) while the dropdown
+            # claims tomo_id is current. Undo whatever got loaded, say why, and
+            # go back to the tomogram the user was on. That recursive call
+            # cannot loop: after _unload_current, a failure there has no
+            # previous tomogram to return to.
+            self._unload_current()
+            message = f"Could not load {tomo_id}: {error}"
+            print(f"[PickMe] WARNING: {message}")
+            if previous_id is not None:
+                self.show(previous_id)
+            self.widget.set_status(message)
+
+    def _load(self, tomo_id):
+        """Loads `tomo_id`'s tomogram and segmentation into the viewer.
+
+        Called only by `show`, which cleans up if this raises part-way.
+
+        Args:
+            tomo_id (str): One of the IDs in `data_dict`.
+
+        Raises:
+            ValueError: If the tomogram and segmentation shapes differ.
+        """
         self._unload_current()
 
         paths = self._data_dict[tomo_id]
@@ -105,6 +149,16 @@ class ObjectPicker:
         # int8 label arrays, roughly a quarter the size of the tomogram.
         with mrcfile.open(paths["segmentation"], mode="r") as mrc:
             segmentation = mrc.data.copy()
+
+        # Mismatched shapes would draw the objects in the wrong place, so the
+        # user would be clicking against the wrong geometry - and the
+        # write-out step, which sizes its output from the tomogram, would
+        # only fail after the viewer closed, losing the selection.
+        if tomogram.shape != segmentation.shape:
+            raise ValueError(
+                f"tomogram shape {tomogram.shape} does not match segmentation "
+                f"shape {segmentation.shape}"
+            )
 
         if tomo_id not in self._voxel_counts:
             self._voxel_counts[tomo_id] = voxel_counts(segmentation)
