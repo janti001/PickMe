@@ -12,7 +12,7 @@ tomogram removes the old layers and loads the new pair, so memory stays at
 roughly one tomogram however many are in the input directory.
 
 Selected objects are highlighted by recolouring the existing labels layer
-(selected -> green, others dimmed, background transparent). No extra arrays
+(selected -> green, others magenta, background transparent). No extra arrays
 or overlay layers are created, which again keeps memory flat.
 
 This module imports napari and Qt (via ``picker_widget``) at import time, so
@@ -25,7 +25,13 @@ import mrcfile
 from napari.utils.colormaps import DirectLabelColormap
 
 from .picker_widget import PickerWidget
-from .selection import ObjectSelection, is_click, selection_colormap_dict, voxel_counts
+from .selection import (
+    ObjectSelection,
+    is_click,
+    object_z_range,
+    selection_colormap_dict,
+    voxel_counts,
+)
 
 
 def _natural_sort_key(text):
@@ -175,6 +181,13 @@ class ObjectPicker:
             segmentation, name=f"{tomo_id}_segmentation"
         )
         self._labels_layer.mouse_drag_callbacks.append(self._on_mouse_drag)
+
+        # napari opens on the volume's middle slice, which may hold no objects
+        # at all (e.g. objects in z 208-398 of a 412-slice tomogram, opened at
+        # z 205). Start on the middle of the slices that do have objects.
+        z_range = object_z_range(segmentation) if segmentation.ndim == 3 else None
+        if z_range is not None:
+            self.viewer.dims.set_point(0, (z_range[0] + z_range[1]) // 2)
 
         # napari only sends mouse events to the *active* layer, so the click
         # callback above does nothing unless the labels layer is the one

@@ -10,7 +10,11 @@ import numpy as np
 
 # RGBA colours (0-1 floats), as napari's DirectLabelColormap expects.
 GREEN = (0.0, 1.0, 0.0, 1.0)  # selected objects
-DIMMED = (0.6, 0.6, 0.6, 0.25)  # every unselected object
+# Every unselected object. Must stay clearly visible: an earlier grey at 25%
+# opacity disappeared into the grey tomogram, so users saw no objects at all.
+# Magenta/green is the standard colour-blind-safe pair, so selected (green)
+# and unselected (magenta) cannot be confused.
+UNSELECTED = (1.0, 0.0, 1.0, 0.6)
 TRANSPARENT = (0.0, 0.0, 0.0, 0.0)  # background label 0
 
 
@@ -179,6 +183,40 @@ def voxel_counts(segmentation, slab_size=32):
     return {int(label): int(counts[label]) for label in labels}
 
 
+def object_z_range(segmentation, slab_size=32):
+    """Finds the first and last z-slice that contain any object.
+
+    napari opens a volume at its middle slice, which can easily fall outside
+    the objects - the user then sees an empty segmentation. The picker uses
+    this range to open on a slice that actually shows objects. Works in
+    z-slabs for the same memory reason as `voxel_counts`.
+
+    Args:
+        segmentation: Integer label array in zyx order. 0 is background;
+            negative values are ignored.
+        slab_size: Number of z-planes checked at a time.
+
+    Returns:
+        A ``(first_z, last_z)`` tuple of ints, or None if there are no
+        objects.
+
+    Raises:
+        ValueError: If slab_size is less than 1.
+    """
+    if slab_size < 1:
+        raise ValueError(f"slab_size must be >= 1, got {slab_size}")
+    seg = np.asarray(segmentation)
+    occupied = []
+    for start in range(0, seg.shape[0], slab_size):
+        slab = seg[start:start + slab_size]
+        # One True/False per plane in this slab: does it hold any object?
+        has_object = (slab > 0).reshape(slab.shape[0], -1).any(axis=1)
+        occupied.extend(start + np.flatnonzero(has_object))
+    if not occupied:
+        return None
+    return int(occupied[0]), int(occupied[-1])
+
+
 def selection_colormap_dict(selected):
     """Builds the colour mapping for napari's DirectLabelColormap.
 
@@ -186,11 +224,11 @@ def selection_colormap_dict(selected):
         selected: Iterable of selected labels (ints or numpy ints).
 
     Returns:
-        Dict {None: DIMMED, 0: TRANSPARENT, label: GREEN, ...}. The None key
+        Dict {None: UNSELECTED, 0: TRANSPARENT, label: GREEN, ...}. The None key
         is napari's "default colour for any label not listed". Keys are
         plain Python ints.
     """
-    colors = {None: DIMMED, 0: TRANSPARENT}
+    colors = {None: UNSELECTED, 0: TRANSPARENT}
     for label in selected:
         label = int(label)
         if label > 0:  # never let a selected label override the background

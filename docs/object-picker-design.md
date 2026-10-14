@@ -23,7 +23,7 @@ while laptops/WSL use PyQt6.
 | Click behaviour | Plain click toggles; press→release moving > 4 px is a drag (pan/rotate) and selects nothing | Fast, and does not fight napari's own camera controls |
 | Selection list | Dock list of `label N — V voxels` with *Remove selected* and *Clear all* | A readable record of what will be written, fixable without re-finding the object |
 | Regionprops plugin | Removed; `napari-skimage` dropped as a dependency | Removes the fragile private-API code and one cluster dependency |
-| Highlight | **Recolour** the existing labels layer (`DirectLabelColormap`): selected green, others dimmed, background transparent | Zero extra memory. Trade-off accepted: a fill, not a 1-pixel outline |
+| Highlight | **Recolour** the existing labels layer (`DirectLabelColormap`): selected green, others magenta (60% opacity), background transparent | Zero extra memory. Trade-off accepted: a fill, not a 1-pixel outline. Unselected objects were first drawn grey at 25% opacity, which vanished against grey tomograms; green/magenta is the colour-blind-safe pair |
 
 Rejected highlight options: per-object cropped outline layers (`contour=1`) —
 cheap-ish but adds layers and `contour` is 2D-only; a full-size overlay layer —
