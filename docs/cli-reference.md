@@ -1,62 +1,142 @@
 # CLI Reference
 
-This is the flag-by-flag reference for every `PickMe` subcommand. For installation
-and a narrative overview of the tool, see [`../README.md`](../README.md). For how
-the five subcommands chain together into a pipeline, see
-[`pipeline.md`](pipeline.md).
+This is the reference for every `PickMe` subcommand: what each job does, every
+option, the questions it asks you, and the files it writes. For installation
+see [`../README.md`](../README.md) and [`gui-setup.md`](gui-setup.md). For how
+the jobs chain together see [`pipeline.md`](pipeline.md).
 
-The console script is `PickMe` (not `pickme-em`, not `PickMe-EM`). Every flag is
-written with hyphens on the command line (`--input-dir`) but argparse converts
-these to underscores internally (`args.input_dir`) — you don't need to do
-anything about this, it's just why you'll see underscores if you ever read the
-source.
+The console script is `PickMe`. Options are written with hyphens
+(`--input-dir`). Run `PickMe -h` or `PickMe <subcommand> -h` at any time to
+see the same information from the program itself.
 
-Run `PickMe -h` or `PickMe <subcommand> -h` at any time to see this same
-information from argparse directly.
+## The workflow at a glance
 
-**Batch-script warning.** Four of the five subcommands — `filter_objects`,
-`choose_objects`, `decompress`, and `convert` (when given a directory) —
-block on an interactive `y/n` prompt read from stdin, and `choose_objects`
-can additionally open a napari GUI. **`particle_extraction` is the only
-subcommand with no interactive prompt at all.** If you're scripting the full
-pipeline unattended, you'll need to either pre-answer the other four
-subcommands' prompts (e.g. by piping input) or restructure your script
-around that constraint. The clean way is `--non-interactive`, documented per
-subcommand below.
+```
+tomograms (*.mrc)  +  segmentations (*segment*.mrc)
+                         |
+                  filter_objects      remove small/noisy objects (knee filter)
+                         |
+                  choose_objects      click the membranes you want (napari)
+                         |
+                particle_extraction   sample points, Euler angles -> STAR files
+```
+
+`decompress` and `convert` are side tools: `decompress` turns `.mrc.gz` /
+`.mrc.bz2` into plain `.mrc` so you can look at them in Chimera/ChimeraX;
+`convert` rewrites tomograms as float32.
+
+You do not have to run every stage. `particle_extraction` can start from the
+output of `choose_objects` (the default), or directly from any folder of
+segmentations (see below).
+
+## File naming and pairing rules
+
+PickMe makes **no assumptions about how your files are named**. There is no
+required `TS_` prefix or tomogram number.
+
+| Term | Rule |
+|---|---|
+| Tomogram | Any `*.mrc` file. |
+| Segmentation | Any file whose name contains `segment` (glob `*segment*`), as `.mrc`, `.mrc.gz` or `.mrc.bz2`. Files without `segment` in the name are ignored by `filter_objects`. |
+| **id** | The file name with `.mrc`, `.mrc.gz` or `.mrc.bz2` removed. `TS_1166_10.00Apx.mrc` has id `TS_1166_10.00Apx`. |
+
+**Pairing a segmentation with its tomogram.** A segmentation belongs to the
+tomogram whose id is the **longest prefix** of the segmentation's file name,
+where the id must end at a separator (`_`, `.`, `-`, ...) and not in the
+middle of a word. This suits tools such as MemBrain-seg that append to the
+tomogram name:
+
+```
+TS_1166_10.00Apx.mrc                                          <- tomogram
+TS_1166_10.00Apx_MemBrain_seg_v10_beta.ckpt_segmented.mrc     <- its segmentation
+```
+
+`lamella_B10_seg.mrc` pairs with `lamella_B10`, never with `lamella_B1`, even
+if `lamella_B10` is missing. If a segmentation matches no tomogram, or two
+segmentations match the same tomogram, PickMe asks you to pair them by hand
+(see `choose_objects`). Each tomogram can be used once.
+
+**Picking files by index.** Whenever PickMe lists files it numbers them
+(`  1. name`, in natural order, so 2 comes before 10). You answer with numbers,
+never with names:
+
+| You type | Meaning |
+|---|---|
+| `1 3 5-8` | files 1, 3, 5, 6, 7, 8 |
+| `1,3` | files 1 and 3 (commas also work) |
+| `all` | every file in the list |
+
+Bad input (0, a number past the end, text, a backwards range such as `8-5`)
+prints why it was rejected and asks again.
+
+**`rlnMicrographName` in STAR files** follows the Warp/M convention: the
+tomogram id with a trailing `_<number>Apx` removed, plus `.tomostar`.
+
+| Tomogram id | `rlnMicrographName` |
+|---|---|
+| `TS_1166_10.00Apx` | `TS_1166.tomostar` |
+| `lamella3_rec` | `lamella3_rec.tomostar` |
+
+**Duplicate-name warning.** If two inputs would write the same output name
+(for example `a.mrc` and `a.mrc.gz` in one folder), `filter_objects`,
+`particle_extraction`, `decompress` and `convert` continue but print:
+
+```
+WARNING: a.mrc, a.mrc.gz all produce output named 'a'; the one processed last will overwrite the others.
+```
+
+**Older outputs.** Files written before this naming scheme (for example
+`TS_1166_filtered.mrc.gz`) do not start with the full tomogram id
+(`TS_1166_10.00Apx`), so they cannot be paired automatically. You will be
+taken to the manual pairing prompt, or you can re-run `filter_objects` to get
+new names.
+
+## Job directories and job numbers
+
+Every run writes into a new numbered folder under the **output root**
+(`./outputs` in the folder where you run PickMe; `--output-dir` moves the whole
+root):
+
+| Subcommand | Output folder |
+|---|---|
+| `filter_objects` | `<root>/filter/jobNNN` |
+| `choose_objects` | `<root>/choose/jobNNN` |
+| `particle_extraction` | `<root>/particle_extraction/jobNNN` |
+| `decompress` | `<root>/decompress/jobNNN` |
+| `convert` | `<root>/convert/jobNNN` |
+
+Job numbers are zero-padded to three digits and come from **one global
+counter** across the whole output root, not one per stage. If
+`filter/job003` exists, the next `choose_objects` run is `choose/job004`.
+Anywhere an option takes `--input-job`, `1` and `001` both mean `job001`.
+
+## Unattended runs and `--non-interactive`
+
+`filter_objects`, `choose_objects`, `decompress` and `convert` ask questions
+and wait for your answer. Pass `--non-interactive` to take the default answer
+to every question, which is what you need in a batch or HPC (Slurm) job. What
+the default is differs per command and is listed below.
+`particle_extraction` never asks anything.
+
+PickMe reports progress with printed text and progress bars.
 
 ## How much memory do I need?
 
-Roughly **3–4x the size of one uncompressed tomogram**, and it does *not* grow
-with the number of tomograms in your input directory — each is processed and
-released before the next is read.
-
-For a 700x1400x1400 float32 tomogram (5.5 GB on disk) with a matching `int8`
-segmentation:
+Roughly 3-4x the size of one uncompressed tomogram. It does not grow with the
+number of tomograms, because each is processed and released before the next.
+Figures for a 700x1400x1400 float32 tomogram (5.5 GB):
 
 | Subcommand | Approximate peak RAM |
 |---|---|
 | `filter_objects` | ~4.2 GB |
-| `choose_objects` (napari GUI) | ~2.8 GB, plus what napari needs to display |
-| `choose_objects` (`--non-interactive`) | ~2.6 GB |
-| `particle_extraction` | small — objects are processed as cropped sub-volumes |
+| `choose_objects` | ~2.8 GB, plus what napari needs to display |
+| `particle_extraction` | small (objects are processed as cropped sub-volumes) |
 | `decompress`, `convert` | ~2x the size of one file |
 
-If you are on **WSL2**, note that it caps itself at 50% of your Windows RAM (a
-flat 8 GB on older builds) regardless of what the machine has. Raise it in
-`C:\Users\<you>\.wslconfig`:
-
-```ini
-[wsl2]
-memory=24GB
-swap=8GB
-```
-
-then `wsl --shutdown` and reopen. A process killed with no traceback, or the
-whole WSL session dying, is what hitting that cap looks like.
-
-> Earlier versions needed 12+ GB and grew with the number of tomograms, which
-> made an 8 GB machine unusable. See `distribution.md` §2.2 if you are
-> comparing against older behaviour.
+On WSL2 the memory cap defaults to half your Windows RAM; raise it in
+`C:\Users\<you>\.wslconfig` (`[wsl2]` then `memory=24GB`), then run
+`wsl --shutdown`. A process killed with no message is what hitting the cap
+looks like.
 
 ## Contents
 
@@ -71,283 +151,286 @@ whole WSL session dying, is what hitting that cap looks like.
 
 ## `filter_objects`
 
-Finds segmentation files, identifies every labelled object in them with
-`skimage.measure.regionprops`, discards the objects that look like noise using
-a volume-based knee filter, and writes the surviving objects back out.
+**What it does.** Reads each segmentation, finds every labelled object in it,
+and removes the objects that look like noise using a volume-based **knee
+detection**: objects are ranked by volume and those past the knee of the curve
+are kept. This is the first stage of the workflow.
 
-| Flag | Type | Required | Default | Description |
+**Options**
+
+| Option | Value | Required | Default | Meaning |
 |---|---|---|---|---|
-| `--input-dir` | str (path) | Yes | — | Directory containing the segmentation files to process. |
-| `--output-dir` | str (path) | No | `./outputs` | Overrides the pipeline output root (see [pipeline.md](pipeline.md#output-root-and-job-numbering)). |
-| `--filter` | str | No | `None` | Accepted but currently has no effect — see [Known limitations](#known-limitations). |
-| `--non-interactive` | flag | No | `False` | Skip the prompt below and process every matched file. Use this in batch scripts. |
+| `--input-dir` | path | Yes | - | Folder containing the segmentation files. |
+| `--output-dir` | path | No | `./outputs` | Output root for the whole pipeline. |
+| `--filter` | text | No | none | Method for filtering objects (default: max-volume normalisation). Currently accepted but has no effect; the max-volume knee method is always used. |
+| `--non-interactive` | flag | No | off | Skip the question and process every segmentation found. |
 
-**File selection.** Inside `--input-dir`, PickMe looks for files matching
-`*segment*` (i.e. the word "segment" must appear somewhere in the filename).
-Files that don't match are silently ignored.
+**Inputs.** Files matching `*segment*` directly inside `--input-dir`
+(`.mrc`, `.mrc.gz` or `.mrc.bz2`). Other files are ignored.
 
-**Interactive prompt.** Unless `--non-interactive` is set, PickMe asks before
-doing anything else:
+**Interactive prompts**
 
-```
-Are there specific tomograms you want to process (y/n)?
-```
+1. `Are there specific segmentations you want to process (y/n)?`
+   - `n`: process every segmentation found.
+   - `y`: the segmentations are listed with numbers; type indices such as
+     `1 3 5-8` or `all`.
 
-- **n** — every matched `*segment*` file is processed.
-- **y** — it prints the matched files and asks you to type the numeric
-  tomogram IDs you want (e.g. `1007 1012`), then processes only those.
+**`--non-interactive`:** answers `n`, so every segmentation is processed.
 
-With `--non-interactive` the prompt is skipped entirely and every matched file
-is processed, so this subcommand can be driven from an unattended batch script.
-See [gui-setup.md](gui-setup.md#3-running-the-non-gui-stages-unattended).
+**Outputs**, in `<root>/filter/jobNNN/`:
 
-**Outputs**, written to `<output_root>/filter/jobNNN/`:
-- `<tomo>_filtered.mrc.gz` — one gzip-compressed mrc per tomogram, containing
-  only the objects that passed the filter (voxels carry their original object
-  label, not just 1/0).
-- `plots/<micrograph>_knee.png` — a diagnostic plot per tomogram showing the
-  volume knee and where the cutoff was placed.
+| Path | Contents |
+|---|---|
+| `<segmentation id>_filtered.mrc.gz` | Gzip-compressed labels (int8) containing only the objects kept. Objects keep their original label numbers. |
+| `plots/<segmentation id>_knee.png` | Diagnostic plot of the volume curve and where the cut-off fell. |
 
-**Known limitations.** `--filter` is parsed and stored on `args.filter`, but
-`extract_and_store()` never passes it on to the filtering function
-(`filter.knee_detection`). Whatever value you supply, the only behaviour you
-get is the default: max-volume normalisation with a perpendicular-distance
-knee cutoff. Treat `--filter` as reserved for future use, not a working
-option today.
+For each segmentation PickMe prints a summary line such as
+`For segmentation <id>, N objects were selected. Objects: [...]`.
 
-**Example:**
+**Example**
 ```bash
-PickMe filter_objects --input-dir ./segmentations --output-dir ./outputs
+PickMe filter_objects --input-dir ./segmentations
+PickMe filter_objects --input-dir ./segmentations --non-interactive   # batch job
 ```
 
 ---
 
 ## `choose_objects`
 
-Lets you narrow a tomogram's filtered objects down to the ones you actually
-want, either by hand in napari or by keeping everything. This is the stage
-that produces the input `particle_extraction` normally expects.
+**What it does.** Lets you pick, by clicking in napari, the membrane objects
+you actually want, one tomogram at a time, with the tomogram shown beneath its
+segmentation. It writes the chosen objects out for `particle_extraction`. This
+is the second stage; it needs a screen.
 
-| Flag | Type | Required | Default | Description |
+**Options**
+
+| Option | Value | Required | Default | Meaning |
 |---|---|---|---|---|
-| `--input-dir` | str (path) | Yes | — | Directory (or single file) of the **reconstructed tomograms** — the raw/reconstructed volumes, not the segmentations. |
-| `--segmentation-dir` | str (path) | No | `None` | Directory of segmentation `.mrc` files to pick objects from. See input resolution below. |
-| `--output-dir` | str (path) | No | `./outputs` | Overrides the pipeline output root. |
-| `--input-job` | int | No | `None` | Use a specific `filter` job number as the segmentation source, e.g. `1` selects `job001`. |
-| `--write-selections` | flag | No | `False` | Write each kept object to its own uncompressed `.mrc` file instead of one combined file per tomogram. |
-| `--non-interactive` | flag | No | `False` | Skip the prompt below and take the **n** path — napari is never opened. Picking objects visually needs a display, which batch nodes do not have. |
+| `--input-dir` | path | Yes | - | A tomogram `.mrc` file, or a folder of reconstructed tomograms (the volumes, not the segmentations). |
+| `--segmentation-dir` | path | No | none | Folder of segmentation `.mrc` files to pick from. Assumed to be `.mrc`. |
+| `--output-dir` | path | No | `./outputs` | Output root. Changing it is not recommended. |
+| `--input-job` | integer | No | none | Use a specific filter job's output as the segmentations, e.g. `1` selects `job001`. |
+| `--write-selections` | flag | No | off | Write each chosen object to its own `.mrc` file in a folder named by the tomogram id. Without it, all chosen objects of a tomogram go into one file. |
+| `--non-interactive` | flag | No | off | Skip questions. The napari viewer is never opened (batch nodes have no display), so the job is cancelled (see below). |
 
-Note `--input-dir` here is **not** the segmentation directory — it's the
-tomogram volumes that get shown side-by-side with the segmentation in napari.
-The segmentation source is chosen separately, by the three-way rule below.
+**Inputs.** Tomograms from `--input-dir`. Segmentations come from the first of:
 
-**Segmentation source resolution** (first match wins):
+1. `--segmentation-dir`, if given;
+2. `--input-job N`, if given;
+3. the **latest** `filter` job.
 
-1. `--segmentation-dir <dir>` is given → use every `<dir>/*.mrc` file.
-2. else `--input-job N` is given → use every file matching
-   `<output_root>/**/job<NNN>/*.mrc*` (zero-padded automatically, so `1` → `job001`).
-3. else → use the **latest** `outputs/filter/jobNNN` directory, filtered to
-   files matching `*filtered*`.
+A tomogram is never treated as its own segmentation when both sit in one
+folder. Segmentations are paired with tomograms by the
+[longest-prefix rule](#file-naming-and-pairing-rules).
 
-`--segmentation-dir` wins over `--input-job` if you accidentally supply both.
+**Interactive prompts**, in order:
 
-Tomogram IDs are matched between `--input-dir` and the resolved segmentation
-files by splitting each filename on `_` and comparing the second field (e.g.
-`TS_1007...` → `1007`). Only tomograms present on both sides end up processed.
+1. `Are there any objects which you would like to select (y/n)?`
+   - `y`: continue.
+   - `n`: **cancels the job.** Nothing is written and no job folder is created.
+2. *Manual pairing*, only for segmentations that matched no tomogram or
+   matched ambiguously. For each such segmentation, type the number of the
+   tomogram it belongs to; a blank answer skips it. Each tomogram can be used
+   once.
 
-**Interactive prompt.** Asked first, unless `--non-interactive` is set:
+   PickMe then prints `Paired N tomogram(s) with a segmentation; M
+   segmentation(s) skipped.` If nothing is paired it says there is nothing to
+   do and stops without opening napari.
+3. `Are there specific tomograms you want to process (y/n)?` Asked only when
+   more than one tomogram is paired. `n`: all paired tomograms; `y`: choose by
+   index (`1 3 5-8` or `all`).
 
-```
-Are there any objects which you would like to select (y/n)?
-```
+**`--non-interactive`:** answers the first question as "no", so the job is
+cancelled and nothing is written. Object picking needs a display, so this
+command cannot run unattended. Run it on a machine with a screen (or an
+`ssh -X` session; see [gui-setup.md](gui-setup.md)) and use the other
+stages in batch jobs.
 
-- **y** — opens a napari viewer with each tomogram and its segmentation
-  loaded, plus the napari-skimage "Regionprops (labels)" plugin dock widget.
-  Click **Run** in that widget, then select rows in the resulting table to
-  choose objects (multi-select is enabled). Closing the napari window
-  continues the pipeline with whatever was selected at that point.
-- **n** — no object picking happens. What happens next depends on
-  `--write-selections`:
-  - `--write-selections` **not** set: the filtered files are left exactly as
-    they are; nothing new is written.
-  - `--write-selections` set: every object that survived `filter_objects` is
-    written out as its own file (see Outputs below) — useful for exporting
-    membranes without hand-picking any of them.
+### Using the object picker
 
-The **y** path can never run in a batch job: it blocks on a napari window, and
-a compute node has no display to open one on. That is a workflow constraint,
-not a bug — run `choose_objects` on a machine with a display (or an
-`ssh -X` / interactive session) and the other stages on the cluster. See
-[gui-setup.md](gui-setup.md#hpc-clusters).
+napari opens showing **one tomogram at a time**, with its segmentation drawn
+over it. The view starts at the middle of the slices that contain objects.
 
-`--non-interactive` forces the **n** path, so `choose_objects` can be scripted
-when combined with `--write-selections` to export every filtered object without
-hand-picking.
+| Action | Result |
+|---|---|
+| Left-click an object | Selects it. |
+| Click a selected object again | Deselects it. |
+| Click-and-drag | Pans (2D view) or rotates (3D view). A drag never selects: any press-and-release that moves more than 4 pixels counts as a drag. |
 
-**Outputs**, written to `<output_root>/choose/jobNNN/`:
-- Default (no `--write-selections`, objects were picked in napari):
-  `<tomo_id>_filtered_chosen.mrc.gz` — one gzip mrc per tomogram, voxels
-  carrying the original object label.
-- With `--write-selections` (either after picking in napari, or after
-  answering `n` to skip picking): `TS_<id>_membranes/TS_<id>_obj<label>.mrc`
-  — one **uncompressed** file per object, voxels set to `1` rather than the
-  label. This shape is intended for feeding individual membranes back into
-  MemBrain-seg for retraining.
+Clicking works in both the 2D slice view and the 3D view, with the left mouse
+button only, and only while the labels layer is in its normal navigation mode
+(not paint, fill or erase).
 
-**Example:**
+Colours: **selected objects are bright green**, **unselected objects are
+magenta** (60% opaque), and the background is transparent. Objects are filled,
+not outlined.
+
+The dock panel **PickMe objects** on the right contains:
+
+- a tomogram drop-down with **Previous** / **Next** buttons;
+- the list of selected objects, e.g. `label 12 - 48,301 voxels`, with
+  **Remove selected** and **Clear all** buttons;
+- a status line.
+
+Your selection is remembered for each tomogram while you move between them.
+Switching unloads the previous tomogram, so memory use stays at about one
+tomogram. If a segmentation has a different shape from its tomogram, or is
+corrupt, PickMe warns and returns to the previous tomogram.
+
+**Close the napari window to finish.** Closing it writes your selection.
+
+**Outputs**, in `<root>/choose/jobNNN/`. Tomograms with nothing selected are
+skipped; if nothing at all was selected, no files are written.
+
+| Mode | Path | Contents |
+|---|---|---|
+| Default | `<tomogram id>_chosen.mrc.gz` | One gzip file per tomogram; objects keep their label values. |
+| `--write-selections` | `<tomogram id>_membranes/<tomogram id>_obj<label>.mrc` | One uncompressed file per object; voxels set to `1`. |
+
+**Example**
 ```bash
+PickMe choose_objects --input-dir ./tomograms
 PickMe choose_objects --input-dir ./tomograms --input-job 2 --write-selections
+PickMe choose_objects --input-dir ./tomograms --segmentation-dir ./segmentations
 ```
 
 ---
 
 ## `particle_extraction`
 
-Takes chosen/filtered segmentation objects, Gaussian-smooths them, runs
-marching cubes to build a surface mesh, samples points across that surface at
-a fixed spacing, assigns each point a RELION-convention Euler angle, and
-writes STAR files (and optionally a Chimera `.cmm` file).
+**What it does.** Smooths each chosen object, builds a surface with marching
+cubes, samples points across that surface at a fixed spacing, computes an
+Euler angle for each point from the surface normal, and writes STAR files
+(optionally Chimera marker files). This is the final stage and runs unattended.
 
-| Flag | Type | Required | Default | Description |
+**Options**
+
+| Option | Value | Required | Default | Meaning |
 |---|---|---|---|---|
-| `--sample-rate` | int | Yes | — | Minimum spacing enforced between sampled particle points on the membrane surface, in **pixels/voxels — not Ångströms**. Convert manually if you're used to thinking in physical units. |
-| `--input-dir` | str (path) | No | `None` | Directory of segmentation files to sample. If omitted, PickMe falls back to the latest `choose_objects` job. |
-| `--input-job` | int | No | `None` | Use a specific job number as input (any stage's `jobNNN` — three-digit padding is applied automatically from the integer you pass). |
-| `--output-dir` | str (path) | No | `./outputs` | Overrides the pipeline output root. |
-| `--cmm` | flag | No | `False` | Also write particle coordinates and normals to a `.cmm` file for viewing in Chimera/ChimeraX. |
+| `--sample-rate` | integer | Yes | - | Minimum spacing between sampled points on the membrane, in **pixels** (not Angstroms). |
+| `--input-dir` | path | No | none | Folder of segmentation files to sample. If omitted, the latest `choose` job is used. |
+| `--input-job` | integer | No | none | Use a specific job's output instead of the latest `choose` job. `1` and `001` both mean `job001`. |
+| `--output-dir` | path | No | `./outputs` | Output root for the whole pipeline. |
+| `--cmm` | flag | No | off | Also write particle coordinates to a `.cmm` file for Chimera/ChimeraX. |
+| `--tomogram-dir` | path | No | none | Folder of the original tomograms. Only needed for segmentations **not** produced by PickMe: they are paired to tomograms by name so `rlnMicrographName` is correct. |
 
-**Input resolution** (first match wins):
+**Inputs** (first match wins):
 
-1. `--input-job N` is given → use every file matching
-   `<output_root>/**/job<NNN>/**/*.mrc*`. This takes priority even if
-   `--input-dir` is also supplied.
-2. else, no `--input-dir` and at least one `choose_objects` job exists → use
-   the **latest** `outputs/choose/jobNNN` directory, filtered to files
-   matching `*chosen*`.
-3. else, no `--input-dir` and **no** `choose_objects` job exists yet → raises
-   `RuntimeError` (see [Common errors](#common-errors)).
-4. else, `--input-dir` is given → use every `*.mrc`, `*.mrc.gz`, and
-   `*.mrc.bz2` file directly in that directory.
+1. `--input-job N`: every file under that job, including per-object files.
+2. `--input-dir`: every `*.mrc`, `*.mrc.gz` and `*.mrc.bz2` in that folder.
+3. Otherwise the **latest `choose` job** (both `<id>_chosen.mrc.gz` and
+   `<id>_membranes/*.mrc`).
 
-No interactive prompts — this subcommand can run unattended once its inputs
-exist.
+If no files are found, a warning is printed. For PickMe outputs the tomogram
+id is the input id with `_filtered`, `_chosen`, `_decompressed` and `_obj<N>`
+removed. For raw segmentations, pass `--tomogram-dir`; without it a warning
+says `rlnMicrographName` will be derived from a segmentation name.
 
-**Outputs**, written to `<output_root>/particle_extraction/jobNNN/`:
-- `<tomo_name>.star` — one STAR file per tomogram.
-- `particles.star` — the aggregate STAR file across every tomogram and
-  object processed in this job. Columns: `rlnCoordinateX/Y/Z` (particle
-  position, pixel units), `rlnOriginX/Y/Z` (always `0`), `rlnAngleRot`,
-  `rlnAngleTilt`, `rlnAnglePsi` (ZYZ Euler angles in RELION convention, in
-  **degrees**), `rlnMicrographName` (a `.tomostar` filename, e.g.
-  `TS_1007.tomostar`), `rlnObject` (the source object's label number),
-  `rlnNormalX/Y/Z` (the surface normal at that particle), and
-  `rlnImagePixelSize` (Ångströms per pixel, taken from the segmentation's
-  MRC header). `rlnAngleRot` is drawn uniformly at random per particle —
-  there is no meaningful azimuthal reference around a membrane normal, so
-  it isn't derived from the data the way tilt and psi are.
-- `AnglePlots/<tomo_name>.png` — a diagnostic angle-distribution plot per
-  tomogram.
-- `<tomo_name>.cmm` (only with `--cmm`) — particle coordinates and normals,
-  for loading into Chimera/ChimeraX.
+**Interactive prompts.** None. **`--non-interactive`** does not exist for this
+command because it never asks anything.
 
-**Example:**
+**Outputs**, in `<root>/particle_extraction/jobNNN/`:
+
+| Path | Contents |
+|---|---|
+| `<name>.star` | One STAR file per input file. `<name>` is the input id without the PickMe suffixes but keeping `_obj<N>`, so per-object inputs do not overwrite each other, e.g. `TS_1166_10.00Apx.star`, `TS_1166_10.00Apx_obj4.star`. |
+| `particles.star` | All particles from every input in this job. |
+| `AnglePlots/<name>.png` | Angle-distribution plot per input. |
+| `<name>.cmm` | Chimera markers; only with `--cmm`. |
+
+The job also prints particle counts per `rlnMicrographName` and the total.
+Columns in the STAR files: `rlnCoordinateX/Y/Z` (pixels), `rlnOriginX/Y/Z`
+(always 0), `rlnAngleRot`, `rlnAngleTilt`, `rlnAnglePsi` (degrees),
+`rlnMicrographName`, `rlnObject` (source object label),
+`rlnNormalX/Y/Z`, and `rlnImagePixelSize` (Angstroms per pixel, read from the
+MRC header).
+
+**Known limitation.** `rlnAngleRot` is drawn from an unseeded random number
+generator (there is no natural azimuthal angle around a membrane normal), so
+it differs from run to run. Tilt and psi come from the surface normal and are
+reproducible.
+
+**Example**
 ```bash
 PickMe particle_extraction --sample-rate 15 --cmm
+PickMe particle_extraction --input-job 4 --sample-rate 20
+PickMe particle_extraction --input-dir ./segmentations --tomogram-dir ./tomograms --sample-rate 15
 ```
 
 ---
 
 ## `decompress`
 
-Converts `.mrc.gz` or `.mrc.bz2` files back to plain `.mrc`, since
-Chimera/ChimeraX can't open the compressed forms directly. Works on the
-output of any pipeline stage, not just the latest one.
+**What it does.** Converts `.mrc.gz` / `.mrc.bz2` files to plain `.mrc`,
+because Chimera/ChimeraX cannot open the compressed forms. It works on the
+output of any stage. A side tool, usable at any point.
 
-| Flag | Type | Required | Default | Description |
+**Options**
+
+| Option | Value | Required | Default | Meaning |
 |---|---|---|---|---|
-| `--input-dir` | str (path) | One of `--input-dir` / `--input-job` required | `None` | Directory containing the `.mrc.gz` / `.mrc.bz2` files to decompress. |
-| `--input-job` | int | One of `--input-dir` / `--input-job` required | `None` | Job number to pull files from (any stage). Takes priority over `--input-dir` if both are given. |
-| `--output-dir` | str (path) | No | `./outputs` | Overrides the pipeline output root. |
-| `--non-interactive` | flag | No | `False` | Skip the prompt below and decompress every resolved file. Use this in batch scripts. |
+| `--input-dir` | path | One of `--input-dir` / `--input-job` | none | Folder containing the `.mrc.gz` / `.mrc.bz2` files. |
+| `--input-job` | integer | One of `--input-dir` / `--input-job` | none | Take the files from a PickMe job number (any stage). |
+| `--output-dir` | path | No | `./outputs` | Output root for the whole pipeline. |
+| `--non-interactive` | flag | No | off | Skip the question and decompress every file found. |
 
-**Input resolution:**
+**Inputs.** `*.mrc*` files in `--input-dir`, or in the given job. If both
+options are given, the job takes priority. If neither is given, the command
+stops with an error.
 
-1. `--input-job N` is given → use every file matching
-   `<output_root>/**/job<NNN>/*.mrc*`. This wins even if `--input-dir` is
-   also supplied.
-2. else `--input-dir <dir>` is given → use every `<dir>/*.mrc*` file.
-3. neither is given → raises `RuntimeError` before anything else runs.
+**Interactive prompts**
 
-**Interactive prompt.** After resolving the file list, and unless
-`--non-interactive` is set, PickMe asks:
+1. `Are there specific MRC files you want to process (y/n)?`
+   - `n`: decompress every file found.
+   - `y`: files are listed with numbers; type indices (`1 3 5-8` or `all`).
 
-```
-Are there any specific tomograms you want to decompress? (y/n)
-```
+**`--non-interactive`:** answers `n`, so every file is decompressed.
 
-- **n** — every resolved file is decompressed.
-- **y** — it lists the tomograms found and asks you to type the numeric IDs
-  you want; only those are decompressed.
+**Outputs**, in `<root>/decompress/jobNNN/`: `<id>_decompressed.mrc`, one per
+file. The voxel size is copied from the input.
 
-With `--non-interactive` the prompt is skipped and every resolved file is
-decompressed, making this subcommand safe to call from a batch script.
-
-**Outputs**, written to `<output_root>/decompress/jobNNN/`:
-- `TS_<id>_decompressed.mrc` — one uncompressed mrc per selected tomogram.
-
-**Example:**
+**Example**
 ```bash
 PickMe decompress --input-job 3
+PickMe decompress --input-dir ./outputs/choose/job002 --non-interactive
 ```
 
 ---
 
 ## `convert`
 
-Converts tomogram data type — in the current implementation, always to
-float32, regardless of what you ask for. Useful when a downstream tool is
-picky about voxel dtype.
+**What it does.** Rewrites tomograms with a different data type, for
+downstream software that is picky about it. At present the output is **always
+float32**. A side tool, usable at any point.
 
-| Flag | Type | Required | Default | Description |
+**Options**
+
+| Option | Value | Required | Default | Meaning |
 |---|---|---|---|---|
-| `--input-dir` | str (path) | Yes | — | Directory (or single file) of tomograms to convert. |
-| `--output-dir` | str (path) | No | `./outputs` | Overrides the pipeline output root. |
-| `--data-type` | str | No | `None` (documented as defaulting to float32) | **Accepted but ignored** — see below. |
-| `--non-interactive` | flag | No | `False` | Skip the prompt below and convert every `.mrc` file found. Use this in batch scripts. |
+| `--input-dir` | path | Yes | - | A single tomogram file, or a folder of tomograms. |
+| `--output-dir` | path | No | `./outputs` | Output root for the whole pipeline. |
+| `--data-type` | text | No | `float32` | The data type to convert to. **Accepted but ignored**: the output is always float32. |
+| `--non-interactive` | flag | No | off | Skip the question and convert every `.mrc` file found. |
 
-**File selection.** If `--input-dir` points at a single file, only that file
-is converted. If it points at a directory, PickMe globs for tomograms inside
-it (interactively — see below) and then keeps only the ones ending in
-`.mrc`.
+**Inputs.** The single file given, or the `.mrc` files in the folder.
 
-**Interactive prompt.** When `--input-dir` is a directory (not a single file),
-and unless `--non-interactive` is set, the same tomogram-selection prompt used
-by `filter_objects` fires:
+**Interactive prompts.** Only when `--input-dir` is a folder:
 
-```
-Are there specific tomograms you want to process (y/n)?
-```
+1. `Are there specific tomograms you want to process (y/n)?`
+   - `n`: convert every `.mrc` file found.
+   - `y`: tomograms are listed with numbers; type indices (`1 3 5-8` or `all`).
 
-Answer `n` to convert everything found, or `y` to type specific numeric IDs.
-With `--non-interactive`, everything found is converted without asking — as is
-already the case when `--input-dir` points at a single file.
+A single file is converted without asking.
 
-**Known limitation.** `--data-type` is parsed but never used — `convert()`
-always casts to `numpy.float32` regardless of what you pass. Pass it if you
-like for documentation purposes in your own command history, but it currently
-changes nothing.
+**`--non-interactive`:** answers `n`, so every `.mrc` file is converted.
 
-*(The output voxel size used to be hardcoded to `10`; that is fixed — the
-source file's voxel size is now carried through.)*
+**Outputs**, in `<root>/convert/jobNNN/`: `<id>_f32.mrc`, one per tomogram.
+The voxel size is copied from the input.
 
-**Outputs**, written to `<output_root>/convert/jobNNN/`:
-- `<prefix>_<id>_f32.mrc` — where `<prefix>` and `<id>` are the first two
-  underscore-separated fields of the source filename (e.g.
-  `TS_1007_something.mrc` → `TS_1007_f32.mrc`).
-
-**Example:**
+**Example**
 ```bash
-PickMe convert --input-dir ./raw_tomograms --data-type float32
+PickMe convert --input-dir ./raw_tomograms
+PickMe convert --input-dir ./raw_tomograms/TS_1166_10.00Apx.mrc
 ```
 
 ---
@@ -355,15 +438,16 @@ PickMe convert --input-dir ./raw_tomograms --data-type float32
 ## Common errors
 
 **`particle_extraction`: `RuntimeError: choose_object job must be run if you are to provide no input directory`**
-Raised when you call `particle_extraction` with no `--input-dir`, no
-`--input-job`, and no `choose_objects` job has ever been run under the
-current output root. Fix by either running `choose_objects` first, or
-passing `--input-dir`/`--input-job` explicitly.
+You gave no `--input-dir` and no `--input-job`, and no `choose_objects` job
+exists under the output root. Run `choose_objects` first, or pass
+`--input-dir` / `--input-job`.
 
 **`decompress`: `RuntimeError: A directory or Job number must be provided for this job`**
-Raised immediately if neither `--input-dir` nor `--input-job` is supplied.
-Fix by passing one of the two.
+Pass `--input-dir` or `--input-job`.
 
 **`convert`: `RuntimeError: Input must be a file or directory`**
-Raised if the path given to `--input-dir` doesn't exist as either a file or
-a directory (e.g. a typo in the path).
+The path given to `--input-dir` does not exist (check for a typo).
+
+**`choose_objects` finishes at once and writes nothing.**
+You answered `n` to the first question, ran with `--non-interactive`, or
+nothing could be paired or selected. Re-run and answer `y`.

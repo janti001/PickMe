@@ -75,7 +75,7 @@ def build_parser():
                                          help='Supply directory path containing segmentations files you wish to sample. If Not provided, latest job from choose job will be used')
     particle_extract_parser.add_argument('--input-job', required=False,
                                          type = int,
-                                         help='Users can supply a particular job number if they do not want to use latest from a Choose job. ENSURE to provide the three digit identifier i.e., 001')
+                                         help='Users can supply a particular job number if they do not want to use latest from a Choose job. Either form works, e.g. 1 or 001.')
     particle_extract_parser.add_argument('--output-dir', required=False,
                                          type=str,
                                          help='Pipeline output root. Defaults to ./outputs in the directory where PickMe is run.')

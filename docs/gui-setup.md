@@ -2,12 +2,12 @@
 
 `choose_objects` opens a napari viewer so you can *see* your segmentations and
 click the objects you want. That is the point of PickMe, and it is a
-first-class, default-installed feature — nothing here is optional.
+first-class, default-installed feature on the conda path.
 
 But getting it working has two separate halves, and they fail for completely
 different reasons:
 
-1. **Installing the packages.** Solved by pinning and by using conda-forge.
+1. **Installing the packages.** Solved by version ranges and by using conda-forge.
 2. **Having a window system to draw into.** No amount of pinning fixes a
    machine with no display. This is where WSL and HPC bite.
 
@@ -58,17 +58,18 @@ Do not mix.
 never has to resolve napari or Qt at all:
 
 ```bash
-pip install PickMe-EM            # headless: filter_objects, particle_extraction,
-                                 # decompress, convert. No napari, no Qt, no OpenGL
-pip install "PickMe-EM[gui]"     # adds napari, napari-skimage, qtpy, PyQt6, vispy
+pip install PickMe-EM                # headless: filter_objects, particle_extraction,
+                                     # decompress, convert. No napari, no Qt, no OpenGL
+pip install "PickMe-EM[gui]"         # adds napari, qtpy, PyQt6, vispy
+pip install "PickMe-EM[gui-pyqt5]"   # same, but with PyQt5 (see section 2)
 ```
 
-This is deliberate: resolving an OpenGL stack a compute node can never use was
-a significant part of what made cluster installs slow and fragile. The conda
-path is unaffected — `PickMe.yml` installs the GUI packages directly, so the
-GUI remains default-installed there.
+Install **one** of the two GUI extras, never both. This is deliberate: resolving
+an OpenGL stack a compute node can never use was a significant part of what made
+cluster installs slow and fragile. The conda path is unaffected — `PickMe.yml`
+installs the GUI packages directly, so the GUI remains default-installed there.
 
-If you install without `[gui]` and then answer "yes" at the object-selection
+If you install without a GUI extra and then answer "yes" at the object-selection
 prompt, PickMe tells you exactly what to install rather than raising a bare
 `ModuleNotFoundError`.
 
@@ -80,30 +81,21 @@ everything else:
 | Package | Pin |
 |---|---|
 | `napari` | `>=0.7.0,<0.8` |
-| `napari-skimage` | `>=0.6.0,<0.7` |
-| `pyqt6` | `>=6.9,<6.12` |
+| `vispy` | `>=0.16.1,<0.17` |
+| `pyqt6` (default) | `>=6.9,<6.12` |
 | `qt6-main` (conda only) | `>=6.9,<6.12` |
+| `PyQt5` (Qt5 variant) | `5.15.x` |
 
-The tight pin on `napari-skimage` is not caution for its own sake.
-`choose_objects` drives the Regionprops widget by searching its Qt widget tree
-for the results table and the Run button, because the plugin exposes no API for
-this. A minor release that renames or reorders a widget breaks object selection
-*silently* — you get an empty selection rather than an error.
+PickMe reaches into a few napari/vispy internals (the object picker's mouse
+handling, and the viewer clean-up in `src/PickMe/gui/napari_compat.py`), so an
+unconstrained minor upgrade can break the viewer. Before the viewer opens,
+PickMe checks the installed versions against the pins and warns if they
+disagree. If you see that warning, you have an unpinned environment — recreate
+it from `PickMe.yml` (or `PickMe-pyqt5.yml`).
 
-All of that private-API access is isolated in
-`src/PickMe/gui/napari_compat.py`. Before the viewer opens, PickMe checks the
-installed versions against the pins and warns if they disagree:
-
-```
-[PickMe] WARNING: expected napari-skimage >=0.6.0,<0.7, found 0.7.0 — GUI
-selection may not work. See docs/gui-setup.md for the supported install path.
-```
-
-If you see that, you have an unpinned environment. Recreate it from
-`PickMe.yml`.
-
-**If you change a pin, change it in all three places:** `pyproject.toml`,
-`PickMe.yml`, and `SUPPORTED_VERSIONS` in `src/PickMe/gui/napari_compat.py`.
+**If you change a pin, change it in all three places:** `pyproject.toml`, the
+conda `.yml` file(s), and `SUPPORTED_VERSIONS` in
+`src/PickMe/gui/napari_compat.py`.
 
 ### A note on the X11 libraries
 
@@ -114,7 +106,54 @@ set for whichever platform you are installing on.
 
 ---
 
-## 2. Getting a window: platform by platform
+## 2. PyQt6 or PyQt5?
+
+napari draws its window with Qt, and Qt comes in two generations. PickMe
+supports both, but they are separate installs.
+
+| | PyQt6 (default) | PyQt5 |
+|---|---|---|
+| conda | `PickMe.yml` | `PickMe-pyqt5.yml` |
+| pip | `pip install "PickMe-EM[gui]"` | `pip install "PickMe-EM[gui-pyqt5]"` |
+| Environment name | `PickMe` | `PickMe-pyqt5` |
+| Use when | Laptops, workstations, almost everything | Old Linux/HPC systems whose admin requires Qt5 |
+
+**Use PyQt6 unless you have been told otherwise.** The Qt5 variant exists only
+for clusters where the sysadmin will not allow Qt6 (typically very old
+operating systems). Everything except the Qt binding is identical between the
+two, and the two environments can live side by side on one machine because
+they have different names.
+
+```bash
+conda env create -f PickMe-pyqt5.yml
+conda activate PickMe-pyqt5
+```
+
+### What `QT_API` does
+
+All of PickMe's Qt code goes through `qtpy`, a thin layer that uses whichever
+Qt binding it finds. The environment variable `QT_API` tells it which one to
+use. `PickMe-pyqt5.yml` sets `QT_API=pyqt5` for you: conda sets it when you
+`conda activate PickMe-pyqt5` and removes it on deactivate. You do not need to
+set it yourself in the conda environment.
+
+This matters because conda's `napari` package also pulls in PySide6 (another
+Qt6 binding), so that environment holds more than one binding. Without
+`QT_API`, qtpy would pick on its own; with it, the choice is explicit.
+
+### Do not mix bindings
+
+- In a **pip** environment, install exactly one of `[gui]` or `[gui-pyqt5]`.
+  If both PyQt5 and PyQt6 are present, qtpy picks **PyQt5**, which may not be
+  what you meant.
+- If you do end up with both and need to force the choice, set `QT_API`
+  (`pyqt6` or `pyqt5`) before running PickMe.
+- Do not install a Qt binding with pip into a conda environment that already
+  has one (see section 1).
+
+---
+
+## 3. Getting a window: platform by platform
 
 A successful install does not mean a window will appear. Qt needs a display
 server. Here is what each platform needs.
@@ -224,7 +263,41 @@ job or VNC session — batch (sbatch) jobs cannot run choose_objects.
 
 ---
 
-## 3. Running the non-GUI stages unattended
+## 4. Picking objects in the viewer
+
+`choose_objects` shows **one tomogram at a time**, with its segmentation drawn
+on top. Objects are selected by clicking them.
+
+- **Click** an object to select it; click it again to deselect it. This works
+  in both the 2D slice view and the 3D view.
+- **Drag** to pan (2D) or rotate (3D). A drag never changes the selection — a
+  press-and-release that moves more than a few pixels counts as a drag, not a
+  click.
+- Only the left mouse button selects, and only in napari's normal navigation
+  mode (not while the paint, fill or erase tools are active).
+- **Colours:** selected objects are bright **green**; unselected objects are
+  **magenta**; background is transparent.
+- The viewer opens on the middle of the z-slices that contain objects.
+
+The **PickMe objects** panel on the right of the window shows:
+
+- a tomogram drop-down with **Previous** / **Next** buttons for moving between
+  tomograms. Selections are remembered per tomogram while you switch, and the
+  previous tomogram is unloaded, so memory stays at about one tomogram.
+- the list of selected objects (for example `label 12 — 48,301 voxels`), with
+  **Remove selected** and **Clear all**.
+- a status line.
+
+If a tomogram's segmentation has a different shape, or the file is corrupt,
+PickMe warns and returns you to the previous tomogram.
+
+**Close the napari window to finish** — closing it is what writes the output
+(`outputs/choose/jobNNN/`). Tomograms with nothing selected are skipped; if
+nothing is selected anywhere, no files are written.
+
+---
+
+## 5. Running the non-GUI stages unattended
 
 `filter_objects`, `choose_objects`, `decompress` and `convert` all ask
 questions with `input()`. Under a batch scheduler there is no terminal to
@@ -237,7 +310,7 @@ Pass `--non-interactive` to skip every prompt and take the default:
 | Subcommand | What `--non-interactive` assumes |
 |---|---|
 | `filter_objects` | Process every segmentation file found |
-| `choose_objects` | Do not open napari; take the "no selection" path |
+| `choose_objects` | Cancels the job (object picking needs a display); nothing is written |
 | `decompress` | Decompress every file found |
 | `convert` | Convert every `.mrc` file found |
 
@@ -251,7 +324,7 @@ A batch script for the two heavy stages:
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 
-source activate pickme
+conda activate PickMe
 
 PickMe filter_objects --input-dir /scratch/$USER/segmentations --non-interactive
 PickMe particle_extraction --sample-rate 20
@@ -266,13 +339,13 @@ Then pick objects interactively, somewhere with a display, in between.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `EOFError` immediately on start, in a batch job | A prompt with no terminal to read from | Add `--non-interactive` |
-| `qt.qpa.plugin: Could not load the Qt platform plugin "xcb"` | No display, or missing X libraries | Section 2 — check `$DISPLAY`; on HPC use `ssh -X` or an interactive job |
-| Window opens, then segfaults | Mixed pip and conda Qt | Recreate the environment from `PickMe.yml` |
+| `qt.qpa.plugin: Could not load the Qt platform plugin "xcb"` | No display, or missing X libraries | Section 3 — check `$DISPLAY`; on HPC use `ssh -X` or an interactive job |
+| Window opens, then segfaults | Mixed pip and conda Qt, or two Qt bindings fighting | Recreate the environment from `PickMe.yml` (or `PickMe-pyqt5.yml`); see section 2 |
 | "Could not create OpenGL context" on WSL | GPU passthrough not giving Qt OpenGL 3.3 | `export LIBGL_ALWAYS_SOFTWARE=1` |
 | Viewer opens and 2D works, but toggling to 3D crashes with `Cannot SIZE object ... does not exist` | Software OpenGL rasterizer (e.g. `llvmpipe`) failing on a 3D volume texture, not a version mismatch | See [3D volume view crashes](#3d-volume-view-crashes) above - stick to 2D, or get real GPU passthrough |
-| `[PickMe] WARNING: expected napari-skimage ...` | Unpinned environment | Recreate from `PickMe.yml` |
-| Viewer opens, you click rows, nothing is selected | napari-skimage moved its widgets | Check the version against the pins above; the shim lives in `src/PickMe/gui/napari_compat.py` |
-| `[PickMe] Could not find regionprops table` | Run/Analyse not clicked yet, or a version mismatch | Click Run in the widget first; if it persists, check versions |
+| `[PickMe] WARNING: expected napari ...` (or vispy) | Unpinned environment | Recreate from `PickMe.yml` / `PickMe-pyqt5.yml` |
+| Clicking an object does nothing | Paint/fill/erase tool active, or a right/middle click | Switch the labels layer to normal navigation mode and use the left button |
+| Wrong Qt binding in use (PyQt5 when you wanted PyQt6) | Both bindings installed in one pip env | Install only one GUI extra, or set `QT_API=pyqt6` |
 
 ---
 

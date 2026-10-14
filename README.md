@@ -25,7 +25,27 @@ This is intended as a CLI tool. However, there are some useful functions in this
 
 ---
 
-## Where PickMe fits in a cryo-ET pipeline
+## What PickMe does
+
+PickMe takes a membrane segmentation (for example from MemBrain-seg) and turns it into particle picks with Euler angles already assigned. It removes small, noisy objects with a volume-normalised knee filter, lets you click the membranes you want in napari, then oversamples each chosen membrane surface at a spacing you set and writes RELION-style STAR files.
+
+```
+ segmentations  +  tomograms (.mrc)
+        |                 |
+        v                 |
+  filter_objects          |     drop noisy objects (knee filter)
+        |                 |
+        v                 v
+  choose_objects  <-------+     click membranes in napari
+        |
+        v
+ particle_extraction            sample surface, compute Euler angles
+        |
+        v
+  particles.star  ->  Warp / M / RELION, Dynamo, ...
+```
+
+PickMe is meant to be a highly modular tool used in conjunction with other tools. Where it fits in a cryo-ET pipeline:
 
 ```
 Collect tilt-series
@@ -37,13 +57,9 @@ Collect tilt-series
      (Warp/M/RELION, Dynamo, IMOD, etc.)
 ```
 
-PickMe is meant to be a highly modular tool used in conjunction with other tools at your disposal.
+**Example 1 — round-trip with MemBrain-seg.** Take a segmentation from MemBrain-seg, filter it and pick specific membranes with PickMe, then feed those individual membranes back to MemBrain-seg to re-train. `choose_objects --write-selections` exists for this: it writes each object as its own uncompressed `.mrc`.
 
-**Example 1 — round-trip with MemBrain-seg.** Take a segmentation from MemBrain-seg, filter it and pick specific membranes with PickMe, then feed those individual membranes back to MemBrain-seg to re-train. The `choose_objects --write-selections` flag exists exactly for this: it writes each object out as its own uncompressed `.mrc`, which is the format MemBrain-seg wants.
-
-**Example 2 — feeding a subtomogram averaging pipeline.** PickMe can take a segmentation file, oversample the membrane surface to generate particle picks with Euler angles already calculated, and hand the resulting STAR file to the Warp/M/RELION pipeline.
-
-This is where the power of PickMe comes from: being used in conjunction with other tools.
+**Example 2 — feeding a subtomogram averaging pipeline.** Oversample the membrane surface to generate particle picks with Euler angles already calculated, and hand the resulting STAR file to the Warp/M/RELION pipeline.
 
 ---
 
@@ -52,341 +68,184 @@ This is where the power of PickMe comes from: being used in conjunction with oth
 [**Link to PyPI**](https://pypi.org/project/PickMe-EM/)
 
 - OS-independent
-- Requires Python >= 3.12
+- Requires Python >= 3.12, < 3.14
 
-### Recommended: conda environment file
+### Recommended: conda (PyQt6)
 
-The repository ships a `PickMe.yml` conda environment file, and **this is the only supported install route for the GUI**. It deliberately installs the Qt/GUI stack (`pyqt6`, `qt6-main`, and the X11 libraries those pull in) through conda-forge, because installing those through pip tends to mix incompatible Qt libraries and break napari — which is the part of PickMe you need for `choose_objects`.
+The repository ships a `PickMe.yml` conda environment file. It installs the napari/Qt6 stack from conda-forge, because installing Qt through pip tends to mix incompatible Qt libraries and break napari, which `choose_objects` needs.
 
 ```bash
 git clone https://github.com/janti001/PickMe.git
 cd PickMe
 conda env create -f PickMe.yml
 conda activate PickMe
-```
-
-The environment is called **`PickMe`** — capital P, capital M, exactly as in `PickMe.yml`. Conda environment names are case-sensitive on Linux, so `conda activate pickme` fails with `EnvironmentNameNotFound`.
-
-The last step of `PickMe.yml` runs `pip install --no-deps -e .`, so **creating the environment already installs PickMe in editable mode** — you do *not* need to run `pip install -e .` separately.
-
-Editable mode matters here: PickMe is being worked on regularly, so `git pull` is enough to pick up new features and bug fixes. You do not need to reinstall.
-
-Check it worked:
-
-```bash
 PickMe -h
 ```
 
-### Alternative: pip
+The environment is called **`PickMe`** — capital P, capital M. Conda environment names are case-sensitive on Linux, so `conda activate pickme` fails with `EnvironmentNameNotFound`.
 
-If you would rather manage the environment yourself, PickMe-EM is on PyPI. The name of the environment is yours to choose — it does not have to match the conda-file one:
+The last step of `PickMe.yml` runs `pip install --no-deps -e .`, so creating the environment already installs PickMe in editable mode. `git pull` is enough to pick up new versions.
+
+### Clusters that require Qt5: conda (PyQt5)
+
+Some older HPC clusters can only provide Qt5. Use the PyQt5 environment instead:
+
+```bash
+conda env create -f PickMe-pyqt5.yml
+conda activate PickMe-pyqt5
+```
+
+It is named `PickMe-pyqt5`, so it can live alongside the default environment, and it sets `QT_API=pyqt5` on activation so napari uses the Qt5 binding. Everything else is identical to `PickMe.yml`. Prefer the default PyQt6 environment everywhere else.
+
+### Alternative: pip
 
 ```bash
 conda create -n pickme-pip python=3.12
 conda activate pickme-pip
 
-pip install PickMe-EM            # headless: filter_objects, particle_extraction,
-                                 # decompress, convert. No napari, no Qt, no OpenGL
-pip install "PickMe-EM[gui]"     # adds the napari GUI for choose_objects
+pip install PickMe-EM                  # headless: filter_objects, particle_extraction,
+                                       # decompress, convert. No napari, no Qt
+pip install "PickMe-EM[gui]"           # adds napari + PyQt6 for choose_objects
+pip install "PickMe-EM[gui-pyqt5]"     # adds napari + PyQt5 (old Linux/HPC only)
 ```
 
-**The GUI stack is an optional extra.** Plain `pip install PickMe-EM` gives you the four headless subcommands and nothing else — which is what you want on a cluster, where resolving an OpenGL stack that a compute node can never use is a common cause of slow or failed installs.
+> **Warning:** install **one** Qt binding, never both. `[gui]` and `[gui-pyqt5]` are alternatives; installing both puts two competing bindings in one environment.
 
-Be aware that `[gui]` installs napari's Qt dependencies through pip, which is the setup that most often goes wrong. It is fine if you are scripting the non-GUI stages; if napari fails to launch, use the conda route above or the container.
+The GUI stack is an optional extra so that a headless cluster install does not pull in an OpenGL/Qt stack it can never use. If napari fails to launch from a pip install, use one of the conda routes or the container.
 
-### Alternative: container (Apptainer / Docker)
-
-If conda has failed you — most likely on an HPC cluster — skip installing altogether and run the container. It ships the whole stack, X11 and OpenGL libraries included, already solved:
+### Development install
 
 ```bash
-apptainer exec PickMe.sif PickMe -h
+git clone https://github.com/janti001/PickMe.git
+cd PickMe
+pip install -e ".[gui]"     # or use the conda route above
 ```
 
-See [`container/README.md`](container/README.md) for building the image, starting a container, and working inside one.
+### More install help
 
-### WSL and HPC
-
-A successful install does not guarantee a napari window will open — Qt still needs a display, and WSL and HPC compute nodes often do not have one. **[docs/gui-setup.md](docs/gui-setup.md)** covers what each platform needs, including the fact that plain `sbatch` jobs cannot run `choose_objects` at all, and how to split the pipeline around that. Start there if the GUI will not open.
-
-For running the non-GUI stages unattended, every subcommand that prompts also accepts `--non-interactive`.
-
-### Dependencies
-
-Runtime dependencies are: `numpy`, `pandas`, `matplotlib`, `starfile`, `mrcfile`, `napari`, `napari-skimage`, `scikit-image`, `seaborn`, `plotly`, `tqdm`, `scipy`.
-
-Version requirements are deliberately not listed here so this file cannot go stale — `pyproject.toml` and `PickMe.yml` are the source of truth. Note that the napari/Qt packages are pinned much more tightly than the rest, for the reasons explained in [docs/gui-setup.md](docs/gui-setup.md#what-is-pinned-and-why).
+- **[docs/gui-setup.md](docs/gui-setup.md)** — getting a napari window to open on WSL and HPC, what is pinned and why. Start here if the GUI will not open.
+- **[container/README.md](container/README.md)** — Apptainer/Docker image that ships the whole stack. Note the image has not yet been built successfully (see [Known limitations](#known-limitations)).
 
 ---
 
-## Core concepts
+## Quick start
 
-### The command is `PickMe`
-
-The console script installed by the package is `PickMe` (capital P, capital M). Every subcommand also has its own help:
+A worked example on MemBrain-seg output. Your tomograms are in `/data/tomograms` (e.g. `TS_1166_10.00Apx.mrc`) and the segmentations in `/data/segmentations` (e.g. `TS_1166_10.00Apx_MemBrain_seg_v10_beta.ckpt_segmented.mrc`).
 
 ```bash
-PickMe -h
-PickMe filter_objects -h
-PickMe choose_objects -h
-PickMe particle_extraction -h
-PickMe decompress -h
-PickMe convert -h
-```
-
-### Output roots and job directories
-
-PickMe writes everything under an **output root**, which defaults to `./outputs` — created relative to *wherever you run the command from*. So it is worth making a project directory and running all your PickMe jobs from inside it:
-
-```bash
-mkdir my_pickme_project
-cd my_pickme_project
-```
-
-`--output-dir` sets the output root for **the entire pipeline**, not just one result folder. If you pass it to one subcommand you generally want to pass the same value to all of them, otherwise later jobs will not find earlier ones.
-
-Every job gets its own numbered directory:
-
-```
-<output_root>/<job_name>/jobNNN
-```
-
-`NNN` is zero-padded to three digits (`job001`, `job002`, …).
-
-**The job directory name does not always match the subcommand name.** This trips people up, so here it is explicitly:
-
-| Subcommand | Writes to |
-|---|---|
-| `filter_objects` | `outputs/filter/jobNNN` |
-| `choose_objects` | `outputs/choose/jobNNN` |
-| `particle_extraction` | `outputs/particle_extraction/jobNNN` |
-| `decompress` | `outputs/decompress/jobNNN` |
-| `convert` | `outputs/convert/jobNNN` |
-
-Job numbers are allocated across the **whole output root**, not per job type. If `outputs/filter/job001` exists, the next job you run is `job002` whatever kind of job it is — it might land in `outputs/choose/job002`. That is why `--input-job` can find a job by number alone without you telling it which type of job it was.
-
-### How jobs chain together
-
-Most subcommands can work out their own input from previous jobs. The resolution order is worth knowing, because it is what makes the pipeline runnable with almost no arguments.
-
-**`choose_objects`** picks its segmentation input by:
-
-1. `--segmentation-dir` if given → uses `<dir>/*.mrc`
-2. otherwise `--input-job N` → looks in `<output_root>/**/job<NNN>/*.mrc*`
-3. otherwise the **latest** `outputs/filter/jobNNN`, taking files matching `*filtered*`
-
-**`particle_extraction`** picks its input by:
-
-1. `--input-job N` → `<output_root>/**/job<NNN>/**/*.mrc*`
-2. otherwise, if no `--input-dir` was given and at least one `choose` job exists → the **latest** `outputs/choose/jobNNN`, taking files matching `*chosen*`
-3. otherwise, if no `--input-dir` was given and no `choose` job exists → raises a `RuntimeError` telling you to run `choose_objects` first
-4. otherwise `--input-dir` → `*.mrc`, `*.mrc.gz` and `*.mrc.bz2` in that directory
-
-**`decompress`** picks its input by:
-
-1. `--input-job N` → `<output_root>/**/job<NNN>/*.mrc*`
-2. otherwise `<--input-dir>/*.mrc*`
-
-`--input-job` takes a plain integer and zero-pads it for you: `--input-job 1` means `job001`.
-
-### These commands ask you questions
-
-Several subcommands prompt on stdin before they do anything. **None of these are safe to drop into a non-interactive batch script or a cluster submission** — they will hang waiting for input.
-
-| Subcommand | Prompt |
-|---|---|
-| `filter_objects` | `Are there specific tomograms you want to process (y/n)?` — answer `y` to pick a subset by number ID |
-| `choose_objects` | `Are there any objects which you would like to select (y/n)?` — see below |
-| `decompress` | `Are there any specific tomograms you want to decompress? (y/n)` |
-| `convert` | `Are there specific tomograms you want to process (y/n)?` (when given a directory) |
-
-The `choose_objects` prompt deserves a note, because what happens next depends on both your answer and on `--write-selections`:
-
-- **`y`** → opens napari so you can select objects by hand.
-- **`n`** with `--write-selections` → skips napari and writes **every** filtered object out as its own file.
-- **`n`** without `--write-selections` → does nothing to your files; it just tells you where they already are.
-
-### File naming assumptions
-
-- `filter_objects` looks for files whose name contains **`segment`** in `--input-dir`. If your segmentation software does not put that in the filename, rename the files or PickMe will find nothing.
-- Tomogram IDs are parsed from filenames by splitting on underscores, in the style `TS_<id>_...`. `choose_objects` matches a tomogram to its segmentation using that ID, so the tomogram `.mrc` and the segmentation need to share it.
-- Segmentation arrays are handled in `zyx` order; STAR coordinates are written as `X`/`Y`/`Z`.
-
----
-
-## Usage
-
-### 1. Extract and filter objects
-
-First, filter the segmentations to remove suspected noise that has been segmented. PickMe identifies each labelled object with `regionprops` and applies a volume-normalised knee-detection filter.
-
-```bash
-PickMe filter_objects \
-  --input-dir path/to/directory/containing/segmentations
-```
-
-| Flag | Required | Meaning |
-|---|---|---|
-| `--input-dir` | yes | Directory containing the segmentation files (filenames must contain `segment`) |
-| `--output-dir` | no | Pipeline output root (default `./outputs`) |
-| `--filter` | no | Filter method — see [Known limitations](#known-limitations) |
-
-Writes gzipped `.mrc.gz` files containing the objects that passed the filter, plus knee-detection diagnostic plots showing how the threshold was chosen.
-
-### 2. Choose objects
-
-Second, you can visually choose objects using the wrapper built around napari.
-
-```bash
-PickMe choose_objects \
-  --input-dir path/to/tomogram/reconstruction/mrc/files
-```
-
-| Flag | Required | Meaning |
-|---|---|---|
-| `--input-dir` | yes | Directory of the reconstructed tomograms (`.mrc`) |
-| `--segmentation-dir` | no | Use your own segmentations instead of a previous job |
-| `--output-dir` | no | Pipeline output root |
-| `--input-job` | no | Use a specific job number as input, e.g. `--input-job 1` |
-| `--write-selections` | no | Write each selected object to its own `.mrc` file |
-
-Note that `--input-dir` here is the **tomogram** directory, not the segmentation directory. With no other flags PickMe will find the latest `filter_objects` job and use those segmentations.
-
-#### Working in the napari window
-
-Answer `y` at the prompt and a napari window opens with a Regionprops table on the right-hand side.
-
-1. You will see the tomogram and segmentation layers in the napari layer list. You can show and hide any pairs of tomograms and segmentations you like — selections for a specific tomogram are only applied while that segmentation layer is highlighted in blue.
-2. With a tomogram/segmentation pair open, use the dropdowns at the top right to point Regionprops at the segmentation (labels) layer and the tomogram (image) layer.
-3. In the right-hand feature table, click **labels** and then **analyse**. A feature table of object labels appears at the bottom, and some output is printed to the command line confirming PickMe can see the label table.
-4. Tick **show selected** in the segmentation layer options, and scroll through each object by clicking its label in the table.
-5. To select an object, **hold cmd/ctrl + left-mouse click** on it. It should highlight, and the command line should print that the selection was registered. Hold cmd/ctrl and click again to select multiple objects.
-6. To move on to another tomogram/segmentation pair, select that segmentation layer until it is highlighted blue, show/hide the appropriate layers, and repeat.
-
-When you are done, close the napari window. PickMe registers the selections and writes them to `outputs/choose/jobNNN/`.
-
-Optionally, supply your own segmentations or an explicit job number:
-
-```bash
-PickMe choose_objects \
-  --input-dir path/to/tomogram/reconstruction/mrc/files \
-  --segmentation-dir path/to/segmentations \
-  --input-job 23
-```
-
-### 3. Particle extraction
-
-Now extract particles from the surface of the objects you have filtered and selected. PickMe Gaussian-smooths each object, runs marching cubes to build a triangular surface mesh, samples that surface at your chosen spacing, and computes Euler angles that orient each particle normal to the membrane.
-
-```bash
-PickMe particle_extraction \
-  --sample-rate 5 \
-  --cmm
-```
-
-| Flag | Required | Meaning |
-|---|---|---|
-| `--sample-rate` | yes | Minimum spacing between sampled particles, in pixels |
-| `--input-dir` | no | Use your own segmentations instead of a previous job |
-| `--input-job` | no | Use a specific job number as input |
-| `--output-dir` | no | Pipeline output root |
-| `--cmm` | no | Also write Chimera `.cmm` marker files |
-
-With no input flags, PickMe uses the latest `choose_objects` job.
-
-### 4. Decompress
-
-PickMe writes segmentations compressed. If you want to open them in Chimera/ChimeraX, decompress them first. This can be run against any part of the pipeline, not just the last step.
-
-```bash
-PickMe decompress --input-job 2
-# or
-PickMe decompress --input-dir path/to/compressed/files
-```
-
-| Flag | Required | Meaning |
-|---|---|---|
-| `--input-dir` | see note | Directory containing `.mrc.gz` / `.mrc.bz2` files |
-| `--input-job` | see note | A job number from the PickMe pipeline |
-| `--output-dir` | no | Pipeline output root |
-
-Neither flag is individually required, but you must supply **one of them** — with neither, the command raises a `RuntimeError`.
-
-### 5. Convert
-
-Converts tomogram data types, which is useful when a downstream package insists on a particular type.
-
-```bash
-PickMe convert --input-dir path/to/tomograms
-```
-
-| Flag | Required | Meaning |
-|---|---|---|
-| `--input-dir` | yes | Directory (or single file) containing the tomograms to convert |
-| `--output-dir` | no | Pipeline output root |
-| `--data-type` | no | Target data type — see [Known limitations](#known-limitations) |
-
----
-
-## Worked example: segmentations to a STAR file
-
-Assuming you have a directory of segmentations you want to take through the entire PickMe pipeline, and the matching tomogram reconstructions:
-
-```bash
-# Work from a dedicated project directory so all outputs land together
-mkdir my_pickme_project
-cd my_pickme_project
+mkdir my_pickme_project && cd my_pickme_project   # outputs land in ./outputs
 conda activate PickMe
 
-# 1. Filter noise out of the segmentations   -> outputs/filter/job001
-#    Answer 'n' at the prompt to process every tomogram found.
+# 1. Drop noisy objects              -> outputs/filter/job001/
 PickMe filter_objects --input-dir /data/segmentations
 
-# 2. Pick the membranes you actually want    -> outputs/choose/job002
-#    Answer 'y' to open napari; picks up outputs/filter/job001 automatically.
+# 2. Click the membranes you want    -> outputs/choose/job002/
 PickMe choose_objects --input-dir /data/tomograms
 
-# 3. Oversample the chosen membranes         -> outputs/particle_extraction/job003
-#    Uses the latest choose job automatically. 5 px spacing, plus .cmm for Chimera.
+# 3. Sample the surface              -> outputs/particle_extraction/job003/
 PickMe particle_extraction --sample-rate 5 --cmm
-
-# 4. (Optional) decompress a job's mrc.gz    -> outputs/decompress/job004
-PickMe decompress --input-job 2
 ```
 
-After step 3 your particles are in `outputs/particle_extraction/job003/particles.star`, ready to hand to Warp/M/RELION.
+Each stage finds the previous one automatically (the latest filter job, then the latest choose job). Your particles are in `outputs/particle_extraction/job003/particles.star`.
 
-To feed individual membranes back to MemBrain-seg instead, run step 2 with `--write-selections`:
-
-```bash
-PickMe choose_objects --input-dir /data/tomograms --write-selections
-```
+At the prompts, files are chosen by index (see [File naming](#file-naming)); answering `n` to "specific files?" takes all of them.
 
 ---
 
-## Outputs reference
+## Job types
 
-| Subcommand | Output |
+PickMe writes everything under an output root (default `./outputs`, relative to where you run it; `--output-dir` moves the **whole** root). Each run gets `<root>/<job_name>/jobNNN`, numbered from one counter shared by all job types (`filter/job003` is followed by `choose/job004`). `--input-job 1` and `--input-job 001` both mean `job001`. Full option tables are in **[docs/cli-reference.md](docs/cli-reference.md)**; the stage-by-stage walkthrough is in **[docs/pipeline.md](docs/pipeline.md)**.
+
+### `filter_objects`
+
+Finds every `*segment*` file in `--input-dir`, labels the objects, and keeps those past a volume-normalised knee, removing small noise.
+
+- Key options: `--input-dir` (required), `--output-dir`, `--non-interactive`. (`--filter` is accepted but only one filter exists.)
+- Outputs: `outputs/filter/jobNNN/<segmentation id>_filtered.mrc.gz` and a knee diagnostic plot `plots/<segmentation id>_knee.png`.
+
+### `choose_objects`
+
+Opens napari so you can pick membranes by clicking them, one tomogram at a time.
+
+- Key options: `--input-dir` (tomograms, required), `--segmentation-dir`, `--input-job`, `--write-selections`, `--non-interactive`.
+- Segmentations come from `--segmentation-dir`, else `--input-job`, else the latest filter job.
+- In napari, a "PickMe objects" panel on the right has a tomogram dropdown with Previous/Next and a list of your selections. **Click an object to select it, click again to deselect.** Selected objects are green, unselected magenta. Dragging pans or rotates and never selects. It works in both 2D and 3D views. Selections are remembered as you switch tomograms. Close the window to write the result.
+- Answering `n` to "Are there any objects which you would like to select (y/n)?" **cancels the job**: nothing is written.
+- Outputs: `outputs/choose/jobNNN/<tomogram id>_chosen.mrc.gz` per tomogram; with `--write-selections`, `<tomogram id>_membranes/<tomogram id>_obj<label>.mrc` per object (uncompressed, voxels set to 1).
+
+### `particle_extraction`
+
+Gaussian-smooths each object, runs marching cubes, samples the surface at your spacing and computes Euler angles from the surface normals. Never prompts.
+
+- Key options: `--sample-rate` (required, pixels), `--input-dir`, `--input-job`, `--cmm`, `--tomogram-dir`.
+- Input: `--input-job`, else `--input-dir`, else the latest choose job.
+- For segmentations **not** produced by PickMe, pass `--tomogram-dir` so each is paired to its tomogram by name; otherwise `rlnMicrographName` is derived from the segmentation name and PickMe warns you.
+- Outputs in `outputs/particle_extraction/jobNNN/`: one `<name>.star` per input, an aggregate `particles.star`, `AnglePlots/<name>.png`, and `<name>.cmm` Chimera markers with `--cmm`. STAR columns include `rlnCoordinateX/Y/Z`, `rlnAngleRot/Tilt/Psi`, `rlnMicrographName`, `rlnObject` and `rlnImagePixelSize`.
+
+### `decompress`
+
+Converts `.mrc.gz` / `.mrc.bz2` to plain `.mrc` for viewing in Chimera/ChimeraX.
+
+- Key options: `--input-dir` or `--input-job` (give one), `--non-interactive`.
+- Output: `outputs/decompress/jobNNN/<id>_decompressed.mrc` (voxel size copied).
+
+### `convert`
+
+Casts tomograms to another data type for software that is fussy about it.
+
+- Key options: `--input-dir` (file or directory, required), `--non-interactive`. `--data-type` is accepted but ignored; output is always float32.
+- Output: `outputs/convert/jobNNN/<id>_f32.mrc` (voxel size copied from the input).
+
+---
+
+## File naming
+
+PickMe does not assume any naming scheme such as `TS_<id>`.
+
+- **Tomogram** = any `*.mrc`. **Segmentation** = any `.mrc`, `.mrc.gz` or `.mrc.bz2` whose name contains `segment`.
+- A file's **id** is its name minus `.mrc` / `.mrc.gz` / `.mrc.bz2`: `TS_1166_10.00Apx.mrc` has id `TS_1166_10.00Apx`.
+- **Pairing by prefix.** A segmentation belongs to the tomogram whose id is the *longest* prefix of its file name, ending at a separator (`_`, `.`, `-`). So `TS_1166_10.00Apx_MemBrain_seg_v10_beta.ckpt_segmented.mrc` pairs with `TS_1166_10.00Apx.mrc`, and `lamella_B10_seg` pairs with `lamella_B10`, never `lamella_B1`.
+- **Unmatched or ambiguous** segmentations trigger a prompt asking which tomogram each belongs to (blank skips it). Under `--non-interactive` they are skipped with a warning.
+- **Selecting files by index.** Lists are numbered (`  1. name`); type `1 3 5-8`, `1,3` or `all`. You never type names. Bad input is explained and asked again.
+- **`rlnMicrographName`** follows the Warp/M convention: the tomogram id with a trailing `_<number>Apx` removed, plus `.tomostar`. `TS_1166_10.00Apx` becomes `TS_1166.tomostar`; `lamella3_rec` becomes `lamella3_rec.tomostar`.
+- **Duplicate outputs.** If two inputs would write the same name (`a.mrc` and `a.mrc.gz` in one folder) PickMe prints a warning and carries on; the one processed last overwrites the others.
+- Outputs from older PickMe versions (e.g. `TS_1166_filtered.mrc.gz`) do not start with the full tomogram id, so they go to the manual pairing prompt. Re-run `filter_objects` to get new names.
+- Arrays are handled in `zyx` order; STAR coordinates are written as `X`/`Y`/`Z`.
+
+---
+
+## Running on a cluster
+
+Four subcommands prompt (`filter_objects`, `choose_objects`, `decompress`, `convert`); `particle_extraction` never does. Add `--non-interactive` to take the default answer to every prompt so a batch job does not hang:
+
+```bash
+PickMe filter_objects --input-dir /scratch/$USER/segmentations --non-interactive
+```
+
+`choose_objects` needs a display, so **under `--non-interactive` it cancels and writes nothing**. Run `choose_objects` interactively on a machine with a graphical session first, then run `particle_extraction` on the cluster. See [docs/gui-setup.md](docs/gui-setup.md) for how to split the pipeline around this.
+
+---
+
+## Documentation map
+
+| File | What it covers |
 |---|---|
-| `filter_objects` | `<tomo>_filtered.mrc.gz` (gzip) per tomogram, plus knee-detection plots in a `plots/` subdirectory |
-| `choose_objects` (default) | `<tomo_id>_filtered_chosen.mrc.gz` per tomogram |
-| `choose_objects --write-selections` | A `TS_<id>_membranes/` subdirectory per tomogram, containing one **uncompressed** `TS_<id>_obj<label>.mrc` per object, with the object's voxels set to 1 |
-| `particle_extraction` | One `.star` per tomogram, an aggregate `particles.star` across all tomograms, Euler angle distribution plots in an `AnglePlots/` subdirectory, and `.cmm` marker files if `--cmm` was passed |
-| `decompress` | `TS_<id>_decompressed.mrc` |
-| `convert` | `<prefix>_<id>_f32.mrc` |
-
-Particle STAR files contain `rlnCoordinateX/Y/Z`, `rlnOriginX/Y/Z`, `rlnAngleRot`, `rlnAngleTilt`, `rlnAnglePsi`, `rlnMicrographName` (the `.tomostar` name), `rlnObject` (the object label the particle came from), `rlnNormalX/Y/Z` and `rlnImagePixelSize`.
+| [docs/cli-reference.md](docs/cli-reference.md) | Every subcommand and option |
+| [docs/pipeline.md](docs/pipeline.md) | Stage-by-stage walkthrough of the pipeline |
+| [docs/gui-setup.md](docs/gui-setup.md) | Getting napari to open on WSL/HPC; Qt5 vs Qt6; pinned versions |
+| [docs/known-issues.md](docs/known-issues.md) | Catalogue of bugs and their status |
+| [container/README.md](container/README.md) | Building and running the Apptainer/Docker image |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
 
 ---
 
 ## Known limitations
 
-Being upfront about the rough edges, so you do not lose an afternoon to them:
-
-- **`convert --data-type` is accepted but not yet honoured.** Whatever you pass, output is always float32. The converted file's voxel size is also currently hardcoded to 10 rather than being read from the input. Check your header before using converted files downstream.
-- **`filter_objects --filter` is accepted but not yet honoured.** There is currently one filter — the volume-normalised knee detection — and that is what runs regardless of what you pass. The flag is there for the alternative filters on the roadmap below.
-- **Four of the five subcommands prompt on stdin** (see [above](#these-commands-ask-you-questions)), so the pipeline cannot currently be run unattended in a batch script.
-- **`choose_objects` needs a graphical session** if you answer `y`, since it launches napari and Qt.
-- Filename conventions are assumed rather than configurable: `*segment*` for segmentation inputs, and `TS_<id>` underscore-separated tomogram IDs.
+- **`convert --data-type` is ignored.** Output is always float32.
+- **`filter_objects --filter` is accepted but only one filter exists** (volume-normalised knee detection).
+- **Euler angles are not reproducible.** `rlnAngleRot` is drawn from an unseeded random number generator, so angles differ from run to run. A `--seed` option is planned.
+- **`choose_objects` needs a graphical session**, and cannot run under `--non-interactive`.
+- **The container image has never been built successfully.** Treat `container/` as untested.
 
 ---
 

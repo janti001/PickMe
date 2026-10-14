@@ -4,19 +4,19 @@ Bugs and rough edges found during the documentation and docstring cleanup pass.
 The original pass was documentation-only by design, so this file records what
 was found for you to decide on.
 
-**Status as of branch `gui_3d`** — some have since been fixed; each heading
-below says which. Line numbers in entries predating the `gui_3d` memory work
+**Status as of branch `filename_agnostic_ids`** — some have since been fixed;
+each heading below says which. Line numbers in entries predating the `gui_3d` memory work
 have shifted; locate by pattern, not by number.
 
 | # | Issue | Status |
 |---|---|---|
-| 1 | `TS_filtered` micrograph names | **OPEN — blocks distribution** |
-| 2 | Per-tomogram STAR files overwrite | Partly fixed (`removesuffix` done; the collapse persists via #1) |
+| 1 | `TS_filtered` micrograph names | **Fixed** — `get_mgraph.py` deleted on `filename_agnostic_ids` |
+| 2 | Per-tomogram STAR files overwrite | **Fixed** (`.strip` code removed; names now come from the file id) |
 | 3 | `filter_objects` reuses last shape/voxel size | **Fixed** |
 | 4 | `convert` hardcodes voxel size to 10 | **Fixed** |
 | 5 | `convert --data-type` ignored | OPEN |
 | 6 | `convert` fails on re-run | OPEN |
-| 7–12 | Dead code, typos, API awkwardness | OPEN |
+| 7–12 | Dead code, typos, API awkwardness | OPEN (re-checked against the code on this branch) |
 
 Line numbers refer to the state of the code after the docstring pass.
 
@@ -28,7 +28,15 @@ Each entry is marked with how it was established:
 
 ---
 
-## 1. `particle_extraction` labels every tomogram `TS_filtered` — Verified
+## 1. `particle_extraction` labels every tomogram `TS_filtered` — FIXED
+
+> **Status:** fixed on `filename_agnostic_ids`. `src/PickMe/utils/get_mgraph.py`
+> was deleted; `rlnMicrographName` is now derived from the tomogram id by
+> `utils/naming.py` (a trailing `_<number>Apx` is dropped, then `.tomostar` is
+> added). **Fixed by:** commit `6300ab0`, "Switch every stage to
+> filename-agnostic ids; remove get_mgraph". The write-up below is kept for the
+> record.
+
 
 **Where:** `src/PickMe/utils/get_mgraph.py:71`
 
@@ -61,12 +69,14 @@ default that was never adjusted for the different filename shape.
 
 ---
 
-## 2. Per-tomogram STAR files overwrite each other — PARTLY FIXED
+## 2. Per-tomogram STAR files overwrite each other — FIXED
 
-> **Status:** the `str.strip` half is fixed — `main.py` now uses
-> `tomo_name.removesuffix(".tomostar")`. The overwriting itself persists,
-> because it is caused by issue 1 below handing every tomogram the same name.
-> Fixing issue 1 resolves the remainder.
+> **Status:** fully fixed. The `str.strip` call no longer exists — per-tomogram
+> STAR names now come from the input file id (keeping `_obj<N>` so per-object
+> inputs do not collide), and issue 1 no longer hands every tomogram the same
+> name. **Fixed by:** commit `6300ab0` (and `removesuffix` earlier on `gui_3d`).
+> Inputs that would still produce the same output name trigger a printed
+> duplicate-name warning.
 
 
 **Where:** `src/PickMe/main.py:629`
@@ -99,6 +109,7 @@ robust.
 > **Status:** fixed on `gui_3d`. The two-loop structure that caused it was
 > merged into one during the memory work, so shape and voxel size are now
 > re-derived per tomogram inside the loop that writes the output.
+> **Fixed by:** the `gui_3d` memory work.
 
 
 **Where:** `src/PickMe/main.py:117` (and the surrounding writing loop)
@@ -123,7 +134,9 @@ loop, or carry them alongside the objects in `full_data`.
 ## 4. `convert` hardcodes the output voxel size to 10 — FIXED
 
 > **Status:** fixed. `convert` now reads `voxel_size` from the source file and
-> carries it through to the output.
+> carries it through to the output (`pix_size = f.voxel_size.x` ...
+> `mrc.voxel_size = pix_size` in `main.py`'s `convert`). **Fixed by:** the
+> `gui_3d` branch; confirmed in the code on `filename_agnostic_ids`.
 
 
 **Where:** `src/PickMe/main.py:816`
@@ -141,7 +154,7 @@ the other write paths in `main.py` already do.
 
 ---
 
-## 5. `convert --data-type` is accepted but ignored — Verified
+## 5. `convert --data-type` is accepted but ignored — OPEN (Verified)
 
 **Where:** `src/PickMe/main.py:751` (signature), `:811` (the cast)
 
@@ -154,7 +167,7 @@ implemented. Documented as a known limitation in the meantime.
 
 ---
 
-## 6. `convert` fails on re-run — Reported
+## 6. `convert` fails on re-run — OPEN (confirmed in code)
 
 **Where:** `src/PickMe/main.py:814`
 
@@ -164,11 +177,12 @@ with mrcfile.new(os.path.join(output_directory, output_file)) as mrc:
 
 `mrcfile.new()` defaults to `overwrite=False`, so a second run that lands on an
 existing output filename raises rather than overwriting. Every other write path
-in `main.py` passes `overwrite=True`.
+in `main.py` passes `overwrite=True`. Re-checked on `filename_agnostic_ids`:
+`convert`'s `mrcfile.new(...)` call still omits it.
 
 ---
 
-## 7. `filter_objects --filter` is dead — Verified
+## 7. `filter_objects --filter` is dead — OPEN (Verified)
 
 **Where:** `src/PickMe/cli.py:117` → `src/PickMe/main.py:47`
 
@@ -264,8 +278,12 @@ on it.
   the bound belongs in `pyproject.toml`.
 - **Four of the five subcommands block on `input()`.** `filter_objects`,
   `choose_objects`, `convert` and `decompress` all prompt; only
-  `particle_extraction` can run unattended. A `--yes` / `--non-interactive` flag
-  would make the tool scriptable.
+  `particle_extraction` can run unattended. `--non-interactive` now takes the
+  default answer for every prompt, which makes the tool scriptable (under it,
+  `choose_objects` cancels, since picking objects needs a display).
+- **`rlnAngleRot` is drawn from an unseeded RNG** (`angles/euler_star.py`), so
+  particle angles differ between runs. Intended for membrane picks, but a
+  `--seed` option is still open — see `docs/distribution.md` 1.5.
 - **Job numbering is global across the output root.** `check_make_dir` takes
   `max()` over every `job###` directory anywhere under the root, so stages share
   one counter (`filter/job003` is followed by `choose/job004`). This is
