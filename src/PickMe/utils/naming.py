@@ -108,7 +108,17 @@ def match_segmentations(tomograms, segmentations):
     for seg in segmentations:
         seg_name = _basename(seg)
         # An empty id would be a prefix of everything, so it must never match.
-        candidates = [i for i in by_id if i and seg_name.startswith(i)]
+        # The id must also end at a separator (`_`, `.`, `-`, ...), not part-way
+        # through a word: otherwise, with only `lamella_B1.mrc` present,
+        # `lamella_B10_seg.mrc` would silently pair with B1 and its objects be
+        # written out under the wrong tomogram's name.
+        candidates = [
+            i
+            for i in by_id
+            if i
+            and seg_name.startswith(i)
+            and (len(seg_name) == len(i) or not seg_name[len(i)].isalnum())
+        ]
         if candidates:
             matches.setdefault(max(candidates, key=len), []).append(seg)
         else:

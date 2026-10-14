@@ -414,6 +414,8 @@ def choose_object(
         tomogram_list = glob.glob(
             os.path.join(input_dir, "*.mrc")
         )  # this assumes that the tomograms are in mrc format - we can change this to be more flexible if needed
+    else:
+        raise RuntimeError(f"--input-dir is neither a file nor a directory: {input_dir}")
     outputs_root = utils.get_output_root(output_dir)
     if segmentation_dir is None and input_job is None:
         extract_jobs = sorted(
@@ -437,6 +439,19 @@ def choose_object(
             filtered_seg_list = glob.glob(f"{segmentation_dir}/*.mrc*")
         elif os.path.isfile(segmentation_dir):
             filtered_seg_list = [segmentation_dir]
+        else:
+            raise RuntimeError(
+                f"--segmentation-dir is neither a file nor a directory: {segmentation_dir}"
+            )
+
+    # A segmentation directory may be the tomogram directory itself (e.g.
+    # MemBrain output saved next to the tomograms). A tomogram must never be
+    # treated as a segmentation of itself - it would prefix-match its own id
+    # and make the real segmentation look ambiguous.
+    tomogram_set = {os.path.abspath(t) for t in tomogram_list}
+    filtered_seg_list = [
+        s for s in filtered_seg_list if os.path.abspath(s) not in tomogram_set
+    ]
 
     # --- Pair each segmentation with the tomogram it was made from.
     # A segmentation belongs to the tomogram whose id (file name minus
@@ -459,6 +474,12 @@ def choose_object(
         f"{len(skipped)} segmentation(s) skipped."
     )
     data_dict = pairs
+
+    if ask_user == True and not data_dict:
+        # Opening napari now would only show an empty window the user has to
+        # close before anything else happens.
+        print("No tomogram/segmentation pairs to choose objects from - nothing to do.")
+        return None
 
     if ask_user == True:
         # With several tomograms, let the user narrow down which ones to open,
@@ -837,9 +858,12 @@ def particle_extract(
         input_dir is None and choose_jobs
     ):  # choose obs has to return something - i.e., the choose job has to be run at least once prior if no input directory is provided
         # retrieve the files from the output/choose directory - latest job
-        files = list(
-            choose_jobs[-1].glob("*chosen*")
-        )  # we use glob method with Posix Path as it is a Path object, not a string
+        # A choose job holds either one combined `<id>_chosen.mrc.gz` per
+        # tomogram, or (with --write-selections) per-object files in
+        # `<id>_membranes/`. Pick up both.
+        files = list(choose_jobs[-1].glob("*_chosen.mrc*")) + list(
+            choose_jobs[-1].glob("*_membranes/*.mrc*")
+        )
     elif input_dir is None and not choose_jobs:
         raise RuntimeError(
             "choose_object job must be run if you are to provide no input directory"
@@ -856,6 +880,8 @@ def particle_extract(
     # Work with plain string paths throughout (the latest-choose-job branch
     # above yields pathlib.Path objects).
     files = [str(f) for f in files]
+    if not files:
+        print("WARNING: no segmentation files found to extract particles from.")
 
     # --- Optional: pair raw segmentations with their tomograms by file name.
     # Done once, up front. `paired_ids` maps a segmentation path to the id of
@@ -865,7 +891,15 @@ def particle_extract(
         tomograms = glob.glob(os.path.join(tomogram_dir, "*.mrc"))
         pairs, unmatched = utils.match_segmentations(tomograms, files)
         paired_ids = {entry["segmentation"]: tomo_id for tomo_id, entry in pairs.items()}
+        tomogram_ids = {utils.file_id(t) for t in tomograms}
         for seg in unmatched:
+            # Per-object files (`<id>_obj<n>.mrc`) of one tomogram all match it,
+            # so match_segmentations calls them ambiguous. Their own name
+            # already gives the tomogram id, so accept it without a warning.
+            own_id = utils.tomogram_id_from_name(utils.file_id(seg))
+            if own_id in tomogram_ids:
+                paired_ids[seg] = own_id
+                continue
             print(
                 f"WARNING: no tomogram in {tomogram_dir} matches {os.path.basename(seg)}; "
                 "its rlnMicrographName will be derived from its own file name."
@@ -1081,7 +1115,7 @@ def decompress(input_dir=None, input_job=None, output_dir=None, non_interactive=
     # List the files with 1-based indices and let the user pick which ones to
     # decompress (e.g. `1 3 5-8`, or `all`). Under --non-interactive there is
     # nobody to answer, so choose_files returns every file.
-    files = utils.choose_files(files, kind="file", non_interactive=non_interactive)
+    files = utils.choose_files(files, kind="MRC file", non_interactive=non_interactive)
 
     print(f"Decompressing {len(files)} file(s) now...")
     for file in files:
