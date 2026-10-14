@@ -247,3 +247,26 @@ def parse_index_selection(text: str, count: int) -> list[int]:
                 )
             chosen.add(number - 1)
     return sorted(chosen)
+
+
+def duplicate_ids(paths, key=None) -> dict:
+    """Finds paths that would share an id, and so an output file name.
+
+    Output names are built from ids (e.g. `<id>_decompressed.mrc`), so two
+    inputs with the same id - `a.mrc` and `a.mrc.gz` in one folder - would
+    silently overwrite each other's output. Callers use this to warn first.
+
+    Args:
+        paths: Iterable of file paths.
+        key: Function mapping a path to the id its output is named after.
+            Defaults to `file_id`.
+
+    Returns:
+        dict[str, list[str]]: `{id: [paths]}` for every id shared by two or
+        more paths, in input order. Empty if there are no duplicates.
+    """
+    key = key or file_id
+    groups = {}
+    for path in paths:
+        groups.setdefault(key(path), []).append(path)
+    return {name: group for name, group in groups.items() if len(group) > 1}

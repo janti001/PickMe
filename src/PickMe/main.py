@@ -37,6 +37,27 @@ full_data_dict = {}  # dictionary associating tomogram, with objects, and the ob
 
 
 # this function just ensures that if job number of 1 is provided, 001 is parsed
+def _warn_duplicate_outputs(paths, key=None):
+    """Prints a warning for inputs that would write the same output file.
+
+    Output names are built from file ids, so e.g. `a.mrc` and `a.mrc.gz`
+    in one folder both become `a_...`, and whichever is processed second
+    overwrites the first. This is a warning, not an error: the user may
+    intend it, and processing still goes ahead.
+
+    Args:
+        paths: Input file paths about to be processed.
+        key: Function mapping a path to the name its output is built from.
+            Defaults to `utils.file_id`.
+    """
+    for name, group in utils.duplicate_ids(paths, key=key).items():
+        names = ", ".join(os.path.basename(p) for p in group)
+        print(
+            f"WARNING: {names} all produce output named '{name}'; "
+            "the one processed last will overwrite the others."
+        )
+
+
 def _format_job_number(job_number):
     """Zero-pad a job number to 3 digits, e.g. ``1`` -> ``'001'``."""
     return f"{int(job_number):03d}"
@@ -197,6 +218,7 @@ def filter_objects(
     files = utils.choose_tomograms(
         segmentation_directory=input_dir, non_interactive=non_interactive
     )
+    _warn_duplicate_outputs(files)
 
     # Only the short per-tomogram summary lines are carried out of the loop.
     # Each tomogram's objects are written to disk inside the loop and then
@@ -323,13 +345,12 @@ def choose_object(
       uncompressed `<tomogram id>_membranes/<tomogram id>_obj<label>.mrc`
       files (voxels set to 1, not the label value) if `write_selections` is
       True.
-    - **no** + `write_selections=True`: Writes every object already present in
-      the filtered segmentation set (no further narrowing by selection) out
-      as its own uncompressed
-      `<tomogram id>_membranes/<tomogram id>_obj<label>.mrc` file (voxels set
-      to 1).
-    - **no** + `write_selections=False`: Leaves the filtered files untouched
-      and only prints their location.
+    - **no**: Cancels the job. Nothing is paired or written, and no
+      `choose/jobNNN` directory is created.
+
+    After a "yes", the user is asked whether there are specific tomograms to
+    process: "yes" lets them pick by index, "no" opens every paired
+    tomogram.
 
     Tomograms are every `*.mrc` in `input_dir`, and a tomogram's id is its
     file name minus the extension (e.g. `TS_1166_10.00Apx`). Each segmentation
@@ -364,14 +385,13 @@ def choose_object(
             of one combined gzip-compressed segmentation per tomogram.
             Defaults to False.
         non_interactive (bool, optional): If True, skip the prompt and take
-            the "no" path — the napari viewer is never opened. This is the
-            only sensible batch behaviour: picking objects visually needs a
-            display, which batch nodes do not have (see docs/gui-setup.md).
-            Defaults to False.
+            the "no" path, i.e. cancel: picking objects needs a display,
+            which batch nodes do not have (see docs/gui-setup.md). Defaults
+            to False.
 
     Returns:
         None: This function does not return a value; results are written to
-            disk (or left untouched) as described above.
+            disk as described above (nothing, if cancelled).
 
     Note:
         Only one tomogram is in the viewer at a time; switching tomogram
@@ -398,12 +418,19 @@ def choose_object(
         while ask_user.lower() not in ["y", "yes", "n", "no"]:
             print("Answer must be yes or no!")
             ask_user = input(
-                "Which objects of interest would you like to select from the filtered set for processing?"
+                "Are there any objects which you would like to select (y/n)?"
             )
         if ask_user.lower() in ["y", "yes"]:
             ask_user = True
         elif ask_user.lower() in ["n", "no"]:
             ask_user = False
+
+    # "no" cancels the job. Returning before check_make_dir means no empty
+    # choose/jobNNN is left behind, and no pairing prompts are shown for a
+    # job that would do nothing with the pairs.
+    if not ask_user:
+        print("No objects to select - choose_objects cancelled, nothing written.")
+        return None
 
     # --- setting up directories and data structures
     # getting directories sorted so we can dispatch outputs
@@ -882,6 +909,11 @@ def particle_extract(
     files = [str(f) for f in files]
     if not files:
         print("WARNING: no segmentation files found to extract particles from.")
+    # Per-file outputs (.star, plots, .cmm) are named after the file id minus
+    # PickMe's suffixes, so check collisions on that name.
+    _warn_duplicate_outputs(
+        files, key=lambda f: utils.strip_pickme_suffix(utils.file_id(f))
+    )
 
     # --- Optional: pair raw segmentations with their tomograms by file name.
     # Done once, up front. `paired_ids` maps a segmentation path to the id of
@@ -1116,6 +1148,7 @@ def decompress(input_dir=None, input_job=None, output_dir=None, non_interactive=
     # decompress (e.g. `1 3 5-8`, or `all`). Under --non-interactive there is
     # nobody to answer, so choose_files returns every file.
     files = utils.choose_files(files, kind="MRC file", non_interactive=non_interactive)
+    _warn_duplicate_outputs(files)
 
     print(f"Decompressing {len(files)} file(s) now...")
     for file in files:
@@ -1190,6 +1223,7 @@ def convert(input_dir, output_dir=None, data_type=None, non_interactive=False):
     else:
         raise RuntimeError("Input must be a file or directory")
 
+    _warn_duplicate_outputs(file_list)
     output_directory = utils.check_make_dir(job_name="convert", directory=output_dir)
 
     print(f"Processing {len(file_list)} files now....\n")

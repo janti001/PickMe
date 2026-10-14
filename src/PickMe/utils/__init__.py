@@ -22,6 +22,7 @@ from .naming import (
     strip_pickme_suffix,
     tomogram_id_from_name,
     parse_index_selection,
+    duplicate_ids,
 )
 from .object_extraction import object_extraction
 from .choose_object import choose_object
