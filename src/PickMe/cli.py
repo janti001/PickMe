@@ -85,6 +85,9 @@ def build_parser():
     particle_extract_parser.add_argument('--cmm', required=False,
                                          action='store_true',
                                          help='Enable writing of particle coordinates to a .cmm file')
+    particle_extract_parser.add_argument('--tomogram-dir', required=False,
+                                         type=str, default=None,
+                                         help='Directory of the tomograms (.mrc) the segmentations came from. Only needed for segmentations not produced by PickMe: it pairs them to tomograms by file name so rlnMicrographName is correct.')
     # --------------------------------
     # subcommand 4: Decmpression
     # --------------------------------
@@ -156,7 +159,8 @@ def main():
                          cmm=args.cmm,
                          input_dir=args.input_dir,
                          input_job=args.input_job,
-                         output_dir=args.output_dir)
+                         output_dir=args.output_dir,
+                         tomogram_dir=args.tomogram_dir)
     if args.job == 'decompress':
         from PickMe.main import decompress
 

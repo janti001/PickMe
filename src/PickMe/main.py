@@ -8,7 +8,6 @@ from skimage.measure import marching_cubes
 
 import glob
 import os
-import re
 
 from mrcfile.utils import data_shape_from_header
 
@@ -161,8 +160,12 @@ def filter_objects(
     objects via `skimage.measure.regionprops`, applies volume-normalized
     knee-based filtering to drop small/noisy objects, and writes the filtered
     segmentation back out as a gzip-compressed MRC file
-    (`<tomo_id>_filtered.mrc.gz`). Segmentation arrays are handled in zyx axis
-    order throughout.
+    (`<segmentation id>_filtered.mrc.gz`, where the id is the input file name
+    minus its `.mrc`/`.mrc.gz`/`.mrc.bz2` extension — see
+    `utils.naming.file_id`). Because segmentation tools such as MemBrain-seg
+    name their output after the tomogram, the filtered file still starts with
+    the tomogram's id, which is how `choose_objects` pairs it back up.
+    Segmentation arrays are handled in zyx axis order throughout.
 
     Args:
         input_dir (str): Path, pathlike, to the directory containing all
@@ -211,7 +214,9 @@ def filter_objects(
     ) as pbar:
         for file in files:
             try:
-                mgraph = utils.get_mgraph(file)
+                # The identifier is just the file name minus its extension,
+                # so any naming scheme works (not only `TS_<id>_...`).
+                seg_id = utils.file_id(file)
                 with mrcfile.open(file, mode="r") as mrc:
                     segmentation = mrc.data.copy()
                     pix_size = mrc.voxel_size.x
@@ -219,7 +224,7 @@ def filter_objects(
 
                 # add progress bar update
                 pbar.set_postfix_str(
-                    f"Processing {mgraph}... | shape (zyx)={shape_zyx}"
+                    f"Processing {seg_id}... | shape (zyx)={shape_zyx}"
                 )
 
                 # getting out the objects of the tomograms and filtering out noise
@@ -227,12 +232,12 @@ def filter_objects(
                 objects_filtered = filter.knee_detection(
                     objects_dictionary=objects_dict,
                     volume_array=volumes,
-                    micrograph=mgraph,
+                    micrograph=seg_id,
                     output=output_directory,
                 )
 
                 summary_lines.append(
-                    f"\nFor tomogram {mgraph}, {len(objects_filtered)} objects were "
+                    f"\nFor segmentation {seg_id}, {len(objects_filtered)} objects were "
                     f"selected. Objects: {list(objects_filtered.keys())}"
                 )
 
@@ -255,9 +260,8 @@ def filter_objects(
                     filtered_array[coords[:, 0], coords[:, 1], coords[:, 2]] = pix_label
 
                 # now write a new mrc file
-                tomo_name = mgraph.split(".")[0]
-                out_path = (
-                    f"{os.path.join(output_directory, tomo_name)}_filtered.mrc.gz"
+                out_path = os.path.join(
+                    output_directory, f"{seg_id}_filtered.mrc.gz"
                 )
                 with mrcfile.new(
                     name=out_path, compression="gzip", overwrite=True
@@ -314,17 +318,26 @@ def choose_object(
       deselect; dragging pans or rotates without selecting. Selections are
       remembered per tomogram while switching. After the viewer closes,
       the kept objects are written out — as a single gzip-compressed
-      `<tomo_id>_filtered_chosen.mrc.gz` per tomogram (voxels set to each
+      `<tomogram id>_chosen.mrc.gz` per tomogram (voxels set to each
       object's label value) if `write_selections` is False, or as individual
-      uncompressed `TS_<tomo_id>_membranes/TS_<tomo_id>_obj<label>.mrc` files
-      (voxels set to 1, not the label value) if `write_selections` is True.
+      uncompressed `<tomogram id>_membranes/<tomogram id>_obj<label>.mrc`
+      files (voxels set to 1, not the label value) if `write_selections` is
+      True.
     - **no** + `write_selections=True`: Writes every object already present in
       the filtered segmentation set (no further narrowing by selection) out
       as its own uncompressed
-      `TS_<tomo_id>_membranes/TS_<tomo_id>_obj<label>.mrc` file (voxels set
+      `<tomogram id>_membranes/<tomogram id>_obj<label>.mrc` file (voxels set
       to 1).
     - **no** + `write_selections=False`: Leaves the filtered files untouched
       and only prints their location.
+
+    Tomograms are every `*.mrc` in `input_dir`, and a tomogram's id is its
+    file name minus the extension (e.g. `TS_1166_10.00Apx`). Each segmentation
+    is paired with the tomogram whose id is the longest prefix of the
+    segmentation's file name (see `utils.match_segmentations`); any left
+    unpaired are offered for manual pairing by index (skipped under
+    `non_interactive`). Outputs are named after the *tomogram* id, so that
+    `particle_extract` can recover it by stripping PickMe's own suffixes.
 
     The output of this function feeds into `particle_extract`. Segmentation
     arrays are handled in zyx axis order throughout.
@@ -425,20 +438,45 @@ def choose_object(
         elif os.path.isfile(segmentation_dir):
             filtered_seg_list = [segmentation_dir]
 
-    # create a data dictionary to store the tomogram and segmentation file paths for a particular tomogram
-    data_dict = {}  # this could be changed to a class
-    valid_id = [
-        seg.split("/")[-1].split("_")[1] for seg in filtered_seg_list
-    ]  # we only want the tomograms that are in extract job
-    for tomogram in tomogram_list:
-        tomo_id = str(tomogram).split("/")[-1].split("_")[1]
-        if tomo_id in valid_id:
-            data_dict[tomo_id] = {"tomogram": tomogram}
-            data_dict[tomo_id].update(
-                {"segmentation": seg for seg in filtered_seg_list if tomo_id in seg}
-            )
+    # --- Pair each segmentation with the tomogram it was made from.
+    # A segmentation belongs to the tomogram whose id (file name minus
+    # extension) is the longest prefix of the segmentation's name, because
+    # segmentation tools append to the tomogram's name. Result shape:
+    # {tomogram_id: {"tomogram": path, "segmentation": path}} — exactly what
+    # the ObjectPicker GUI consumes.
+    pairs, unmatched = utils.match_segmentations(tomogram_list, filtered_seg_list)
+    # Anything the prefix rule could not place (or placed ambiguously) is
+    # offered to the user for pairing by index; under --non-interactive it is
+    # skipped with a warning instead.
+    unpaired_tomos = [t for t in tomogram_list if utils.file_id(t) not in pairs]
+    pairs.update(
+        utils.pair_unmatched(unmatched, unpaired_tomos, non_interactive=non_interactive)
+    )
+    paired_segmentations = {entry["segmentation"] for entry in pairs.values()}
+    skipped = [seg for seg in filtered_seg_list if seg not in paired_segmentations]
+    print(
+        f"Paired {len(pairs)} tomogram(s) with a segmentation; "
+        f"{len(skipped)} segmentation(s) skipped."
+    )
+    data_dict = pairs
 
     if ask_user == True:
+        # With several tomograms, let the user narrow down which ones to open,
+        # by index. (choose_files handles the y/n question itself.)
+        if len(data_dict) > 1:
+            chosen_tomograms = set(
+                utils.choose_files(
+                    [entry["tomogram"] for entry in data_dict.values()],
+                    kind="tomogram",
+                    non_interactive=non_interactive,
+                )
+            )
+            data_dict = {
+                tomo_id: entry
+                for tomo_id, entry in data_dict.items()
+                if entry["tomogram"] in chosen_tomograms
+            }
+
         # Imports - remove it from top level as these are only needed if user wants to select specific objects and we want to avoid unnecessary imports if they don't
         # (Qt itself is only touched inside the gui/ subpackage.)
         #
@@ -616,7 +654,7 @@ def choose_object(
                             choice_array[zcoords, ycoords, xcoords] = label
 
                         out_path = os.path.join(
-                            output_directory, f"TS_{tomo_id}_filtered_chosen.mrc.gz"
+                            output_directory, f"{tomo_id}_chosen.mrc.gz"
                         )
                         with mrcfile.new(
                             out_path, compression="gzip", overwrite=True
@@ -628,7 +666,7 @@ def choose_object(
                             f"\n\nWriting out each selected object as a separate mrc file in {output_directory} for membrane sampling..."
                         )
                         out_dir = os.path.join(
-                            output_directory, f"TS_{tomo_id}_membranes"
+                            output_directory, f"{tomo_id}_membranes"
                         )
                         os.makedirs(out_dir, exist_ok=True)
 
@@ -644,7 +682,7 @@ def choose_object(
                             )
                             choice_array[zcoords, ycoords, xcoords] = 1
                             out_path = os.path.join(
-                                out_dir, f"TS_{tomo_id}_obj{label}.mrc"
+                                out_dir, f"{tomo_id}_obj{label}.mrc"
                             )  # could change this to mrc.gz -> for the purpsoe of doing membrain, will leave it as mrc - will change to give user an option
                             with mrcfile.new(out_path, overwrite=True) as new_file:
                                 new_file.set_data(choice_array)
@@ -677,7 +715,12 @@ def choose_object(
 
 # --- Meshing of objects, particle extraction and  angle assignments ----
 def particle_extract(
-    sample_rate: int, cmm: bool, input_dir=None, input_job=None, output_dir=None
+    sample_rate: int,
+    cmm: bool,
+    input_dir=None,
+    input_job=None,
+    output_dir=None,
+    tomogram_dir=None,
 ):
     """Mesh filtered objects, sample surface points, and write particle STAR files.
 
@@ -690,11 +733,21 @@ def particle_extract(
     - Samples mesh points at a minimum spacing of `sample_rate`.
     - Computes Euler angles from each sampled point's surface normal and
       assembles particle data entries.
-    - Writes a per-tomogram `<name>.star` file, then folds those rows into an
-      aggregate `particles.star` covering every tomogram processed.
-    - Writes per-tomogram angle diagnostic plots.
+    - Writes a `<name>.star` file per input file, then folds those rows into
+      an aggregate `particles.star` covering every file processed.
+    - Writes per-file angle diagnostic plots.
     - Optionally writes particle coordinates and normals to a Chimera `.cmm`
-      file per tomogram.
+      file per input file.
+
+    Naming: `<name>` is the input file's id with PickMe's own suffixes
+    (`_filtered`, `_chosen`, `_decompressed`) removed, so a combined
+    `TS_1166_10.00Apx_chosen.mrc.gz` gives `TS_1166_10.00Apx.star`, while a
+    per-object `TS_1166_10.00Apx_obj4.mrc` (from `--write-selections`) keeps
+    its `_obj4` and gives `TS_1166_10.00Apx_obj4.star`, so files belonging to
+    one tomogram never overwrite each other. `rlnMicrographName` is built from
+    the *tomogram* id (the name with `_obj<label>` removed too, or the paired
+    tomogram from `tomogram_dir`), following the Warp/M convention:
+    `TS_1166_10.00Apx` -> `TS_1166.tomostar`.
 
     STAR coordinate columns are written as X/Y/Z, even though the underlying
     segmentation arrays are handled in zyx axis order.
@@ -715,10 +768,17 @@ def particle_extract(
         output_dir (str, optional): Root directory for pipeline outputs. Job
             output is written to `<output_dir>/particle_extraction/jobNNN`.
             Defaults to None (`./outputs`).
+        tomogram_dir (str, optional): Directory of the tomogram `.mrc` files
+            the segmentations came from. Only needed for segmentations not
+            produced by PickMe, whose names do not reduce to the tomogram id:
+            each segmentation is paired to the tomogram whose id is the
+            longest prefix of its name, and that id is used for
+            `rlnMicrographName`. Files that cannot be paired fall back to
+            their own name, with a warning. Defaults to None.
 
     Returns:
         None: This function does not return a value; results are written to
-            disk as per-tomogram `.star` files, an aggregate `particles.star`,
+            disk as per-file `.star` files, an aggregate `particles.star`,
             angle plots, and optional `.cmm` files.
 
     Raises:
@@ -793,6 +853,25 @@ def particle_extract(
             + glob.glob(f"{input_dir}/*mrc.bz2")
         )
 
+    # Work with plain string paths throughout (the latest-choose-job branch
+    # above yields pathlib.Path objects).
+    files = [str(f) for f in files]
+
+    # --- Optional: pair raw segmentations with their tomograms by file name.
+    # Done once, up front. `paired_ids` maps a segmentation path to the id of
+    # the tomogram it belongs to.
+    paired_ids = {}
+    if tomogram_dir is not None:
+        tomograms = glob.glob(os.path.join(tomogram_dir, "*.mrc"))
+        pairs, unmatched = utils.match_segmentations(tomograms, files)
+        paired_ids = {entry["segmentation"]: tomo_id for tomo_id, entry in pairs.items()}
+        for seg in unmatched:
+            print(
+                f"WARNING: no tomogram in {tomogram_dir} matches {os.path.basename(seg)}; "
+                "its rlnMicrographName will be derived from its own file name."
+            )
+    warned_segment_name = False
+
     # cmm_ask = input('Do you want to ouptut the particle coordinates and normals into a .cmm file?')
     print(f"Processing {len(files)} files now....\n")
 
@@ -818,9 +897,24 @@ def particle_extract(
                     pixel_size = mrc.voxel_size.x
                 # Obtain objects from segmentations
                 objects_dict, _ = utils.object_extraction(mrc_data)
-                tomo_name = utils.get_mgraph(
-                    file, caller="particle_extract"
-                )  # this is .tomostar file
+                # --- Names for this file
+                # output_name: unique per input file (keeps `_obj<label>`), used
+                # for the per-file STAR, plot and .cmm so nothing collides.
+                # tomo_id: the tomogram this file belongs to, which is what
+                # rlnMicrographName must point at.
+                output_name = utils.strip_pickme_suffix(utils.file_id(file))
+                tomo_id = paired_ids.get(
+                    file, utils.tomogram_id_from_name(utils.file_id(file))
+                )
+                if "segment" in tomo_id.lower() and not warned_segment_name:
+                    print(
+                        f"WARNING: {tomo_id} looks like a segmentation name, not a "
+                        "tomogram name, so rlnMicrographName will be derived from "
+                        "it. Pass --tomogram-dir to pair segmentations with their "
+                        "tomograms by file name."
+                    )
+                    warned_segment_name = True
+                tomo_name = utils.tomostar_name(tomo_id)  # e.g. TS_1166.tomostar
 
                 for object in objects_dict.values():
                     # Work on a crop around the object rather than a
@@ -893,12 +987,12 @@ def particle_extract(
                 plotting.plot_angles(
                     star_data=tomogram_star_df,
                     output_dir=output_directory,
-                    tomogram_name=tomo_name,
+                    tomogram_name=output_name,
                 )
-                # --- Write out star files per tomogram
+                # --- Write out a star file per input file
                 starfile.write(
                     tomogram_star_df,
-                    f"{output_directory}/{tomo_name.removesuffix('.tomostar')}.star",
+                    os.path.join(output_directory, f"{output_name}.star"),
                 )
                 total_star_df = pd.concat(
                     [total_star_df, tomogram_star_df], ignore_index=True
@@ -907,7 +1001,7 @@ def particle_extract(
                 if cmm == True:
                     utils.cmm_write(
                         data=tomogram_star_df,
-                        tomogram_name=tomo_name,
+                        tomogram_name=output_name,
                         output_directory=output_directory,
                         sampling=sample_rate,
                     )
@@ -938,10 +1032,9 @@ def decompress(input_dir=None, input_job=None, output_dir=None, non_interactive=
     `filter_object`, `choose_object`), which most viewers cannot open
     directly. This function decompresses a set of them back to plain `.mrc`.
     Users can call it to decompress any selected tomogram from any part of
-    the pipeline, not strictly in a linear fashion. It always prompts
-    interactively via `input()`, first printing the available tomograms, then
-    asking whether to decompress all of them or only a user-specified subset
-    of tomogram IDs.
+    the pipeline, not strictly in a linear fashion. Unless `non_interactive`
+    is set, it lists the files found with 1-based indices and asks which to
+    decompress (indices such as `1 3 5-8`, or `all`); names are never typed.
 
     Args:
         input_dir (str, optional): Directory, pathlike, containing the
@@ -961,15 +1054,15 @@ def decompress(input_dir=None, input_job=None, output_dir=None, non_interactive=
 
     Returns:
         None: This function does not return a value; decompressed files are
-            written to disk as `TS_<tomo_id>_decompressed.mrc`.
+            written to disk as `<id>_decompressed.mrc`, where `<id>` is the
+            input file name minus its `.mrc`/`.mrc.gz`/`.mrc.bz2` extension.
 
     Raises:
         RuntimeError: If both `input_dir` and `input_job` are None.
 
     Note:
         Unless `non_interactive` is set, this function prompts via `input()`
-        to ask which tomograms, if any, decompression should be restricted
-        to.
+        to ask which files, if any, decompression should be restricted to.
     """
     if input_dir is None and input_job is None:
         raise RuntimeError("A directory or Job number must be provided for this job")
@@ -985,69 +1078,27 @@ def decompress(input_dir=None, input_job=None, output_dir=None, non_interactive=
     elif input_job is None:
         files = glob.glob(os.path.join(input_dir, "*.mrc*"))
 
-    print(utils._format_tomogram_choices(files))
-    # we have list of all files, but perhas user wants to only decompress a select few:
-    # under --non-interactive there is nobody to narrow the list, so decompress all of them
-    if non_interactive:
-        print(f"Non-interactive mode: decompressing all {len(files)} file(s).")
-        ask = "n"
-    else:
-        ask = input("Are there any specific tomograms you want to decompress? (y/n)")
+    # List the files with 1-based indices and let the user pick which ones to
+    # decompress (e.g. `1 3 5-8`, or `all`). Under --non-interactive there is
+    # nobody to answer, so choose_files returns every file.
+    files = utils.choose_files(files, kind="file", non_interactive=non_interactive)
 
-        while ask not in ["y", "n"]:
-            print("Must be yes or no!")
-            ask = input(
-                "Are there any specific tomograms you want to decompress? (y/n)"
-            )
-    if ask == "y":
-        available_to_choose = [
-            f"TS_{re.findall(r'\d+', file.split('/')[-1])}" for file in files
-        ]
-        print(f"Available tomograms to choose:\n{available_to_choose}")
-        choices = re.findall(
-            r"\d+",
-            input(
-                "Please list the tomograms you want to decompress. You only need to provide the number ID (i.e., TS_XXYY)/\n\nChoices:"
-            ),
+    print(f"Decompressing {len(files)} file(s) now...")
+    for file in files:
+        # Output is named after the input file, minus its extension.
+        out_path = os.path.join(
+            output_directory, f"{utils.file_id(file)}_decompressed.mrc"
         )
-
-        print(f"These are your choices {choices}")
-
-        print("Decompressing your files for you now")
-
-        for file in files:
-            # get mgraph name
-            mgraph = utils.get_mgraph(segmentation_file_path=file, caller="decompress")
-            print(mgraph, type(mgraph))
-            out_path = os.path.join(output_directory, f"TS_{mgraph}_decompressed.mrc")
-            # open up file and copy data
-            if mgraph in choices:
-                with mrcfile.open(file, mode="r") as mrc:
-                    # No .copy(): mrcfile already decompressed the file into its
-                    # own array, and that array stays valid after the handle
-                    # closes. Copying it just doubled peak memory for no gain.
-                    data = mrc.data
-                    pix_size = mrc.voxel_size.x
-                with mrcfile.new(out_path, overwrite=True) as newmrc:
-                    newmrc.set_data(data)
-                    newmrc.voxel_size = pix_size
-            else:
-                pass
-        print(f"Decompresson complete!\nFiles written out to {output_directory}")
-    else:
-        print(f"Decompressing your files now...")
-        for file in files:
-            # get mgraph name
-            mgraph = utils.get_mgraph(segmentation_file_path=file, caller="decompress")
-            out_path = os.path.join(output_directory, f"TS_{mgraph}_decompressed.mrc")
-            # open up file and read the data (see the note above on the .copy())
-            with mrcfile.open(file, mode="r") as mrc:
-                data = mrc.data
-                pix_size = mrc.voxel_size.x
-            with mrcfile.new(out_path, overwrite=True) as newmrc:
-                newmrc.set_data(data)
-                newmrc.voxel_size = pix_size
-        print(f"Decompresson complete!\nFiles written out to {output_directory}")
+        with mrcfile.open(file, mode="r") as mrc:
+            # No .copy(): mrcfile already decompressed the file into its
+            # own array, and that array stays valid after the handle
+            # closes. Copying it just doubled peak memory for no gain.
+            data = mrc.data
+            pix_size = mrc.voxel_size.x
+        with mrcfile.new(out_path, overwrite=True) as newmrc:
+            newmrc.set_data(data)
+            newmrc.voxel_size = pix_size
+    print(f"Decompression complete!\nFiles written out to {output_directory}")
 
     return None
 
@@ -1056,10 +1107,9 @@ def convert(input_dir, output_dir=None, data_type=None, non_interactive=False):
     """Convert tomogram reconstruction(s) to float32 MRC files.
 
     Reads each input tomogram and writes a converted copy named
-    `<part0>_<part1>_f32.mrc`, where the name parts are taken from splitting
-    the input filename on underscores. Output data is always cast to
-    `numpy.float32`, and the output voxel size is currently hardcoded to 10
-    rather than copied from the input file.
+    `<id>_f32.mrc`, where `<id>` is the input file name minus its `.mrc`
+    extension. Output data is always cast to `numpy.float32`; the voxel size
+    is copied from the input file.
 
     Args:
         input_dir (str): Path, pathlike, to a single tomogram file or a
@@ -1080,7 +1130,7 @@ def convert(input_dir, output_dir=None, data_type=None, non_interactive=False):
 
     Returns:
         None: This function does not return a value; converted files are
-            written to disk as `<tomo_id>_f32.mrc`.
+            written to disk as `<id>_f32.mrc`.
 
     Raises:
         RuntimeError: If `input_dir` is neither an existing file nor an
@@ -1118,10 +1168,8 @@ def convert(input_dir, output_dir=None, data_type=None, non_interactive=False):
     ) as pbar:
         for file in file_list:
             pbar.set_postfix_str(f"Processing {os.path.basename(file)}...")
-            # getting the tomogram identifier
-            tomo_file = os.path.basename(file)
-            tomo_file_parts = tomo_file.split("_")
-            output_file = f"{tomo_file_parts[0]}_{tomo_file_parts[1]}_f32.mrc"
+            # Name the output after the input file, minus its extension.
+            output_file = f"{utils.file_id(file)}_f32.mrc"
 
             with mrcfile.open(file, mode="r") as f:
                 # No .copy(): mrcfile's array already owns its buffer and stays

@@ -47,7 +47,13 @@ PickMe's own fixed suffixes.
 | `decompress` | `<id>_decompressed.mrc` |
 | `convert` | `<id>_f32.mrc` |
 
-`particle_extraction` recovers the tomogram id with `strip_pickme_suffix`. For raw
+With `--write-selections`, `choose_objects` writes one file per object
+(`<tomogram id>_obj<label>.mrc`), so several `particle_extraction` inputs can belong to
+one tomogram. Each input therefore gets its own STAR file, named
+`strip_pickme_suffix(file id)` (keeps `_obj<label>`, so nothing overwrites), while
+`rlnMicrographName` uses `tomogram_id_from_name`, which also strips `_obj<label>`.
+
+`particle_extraction` recovers the tomogram id with `tomogram_id_from_name`. For raw
 (non-PickMe) segmentations it takes an optional `--tomogram-dir` and pairs by prefix;
 without it, a recovered id that still contains "segment" triggers a warning, since it
 is a segmentation name rather than a tomogram name.
