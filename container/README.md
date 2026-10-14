@@ -216,7 +216,8 @@ segmentations/  tomograms/
 Apptainer> PickMe filter_objects --input-dir ./segmentations
     1. TS_1001_segment.mrc
     2. TS_1002_segment.mrc
-Which files? (all / 1,2 / 1-2):  all
+Type index numbers, e.g. 1 3 5-8, or all.
+...  all
 ...
 Apptainer> ls outputs/filter/
 job001/
@@ -294,7 +295,10 @@ Submit with `sbatch this_script.sh`.
 
 ## Running the GUI subcommand (`choose_objects`) with X11 forwarding
 
-`choose_objects` opens a napari + Qt6 window. The container has the Qt6/GUI
+`choose_objects` opens a napari + Qt6 window (click-to-select; see
+`../docs/gui-setup.md` §4). The image is PyQt6-based. A cluster that requires
+Qt5 cannot use this image's GUI stack as-is; install from
+`../PickMe-pyqt5.yml` instead (`../docs/gui-setup.md` §2). The container has the Qt6/GUI
 libraries; it still needs a display to draw into, exactly as in
 `../docs/gui-setup.md` §2 — the container doesn't change that requirement,
 it only guarantees the libraries needed to talk to whatever display you

@@ -75,7 +75,7 @@ def build_parser():
                                          help='Supply directory path containing segmentations files you wish to sample. If Not provided, latest job from choose job will be used')
     particle_extract_parser.add_argument('--input-job', required=False,
                                          type = int,
-                                         help='Users can supply a particular job number if they do not want to use latest from a Choose job. ENSURE to provide the three digit identifier i.e., 001')
+                                         help='Users can supply a particular job number if they do not want to use latest from a Choose job. Either form works, e.g. 1 or 001.')
     particle_extract_parser.add_argument('--output-dir', required=False,
                                          type=str,
                                          help='Pipeline output root. Defaults to ./outputs in the directory where PickMe is run.')
@@ -85,6 +85,9 @@ def build_parser():
     particle_extract_parser.add_argument('--cmm', required=False,
                                          action='store_true',
                                          help='Enable writing of particle coordinates to a .cmm file')
+    particle_extract_parser.add_argument('--tomogram-dir', required=False,
+                                         type=str, default=None,
+                                         help='Directory of the tomograms (.mrc) the segmentations came from. Only needed for segmentations not produced by PickMe: it pairs them to tomograms by file name so rlnMicrographName is correct.')
     # --------------------------------
     # subcommand 4: Decmpression
     # --------------------------------
@@ -156,7 +159,8 @@ def main():
                          cmm=args.cmm,
                          input_dir=args.input_dir,
                          input_job=args.input_job,
-                         output_dir=args.output_dir)
+                         output_dir=args.output_dir,
+                         tomogram_dir=args.tomogram_dir)
     if args.job == 'decompress':
         from PickMe.main import decompress
 
